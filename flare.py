@@ -16,7 +16,7 @@ import queue
 
 MAX_CAP = 100
 MIN_CAP = 10
-NUM_NODE = 2000 #ネットワークのノードの数
+NUM_NODE = 1000 #ネットワークのノードの数
 PROB_EDGE = 0.3 #ノード間にチャネルが存在する確率
 RNB = 2 #近隣半径
 NBC = 5 #ビーコンの数
@@ -408,7 +408,7 @@ def Candicate_rotes(s, r, k, f, Ntab):
     cap.update(s.cap)
     for key in s.fee.keys():
         fee[key] = s.fee[key]
-    while len(P) < k and len(U) < Ntab:
+    while len(P) < k and len(U) <= Ntab:
         for e in RTco:
             if cap[e] < f:
                 Mbar.add(e)
@@ -531,13 +531,12 @@ def Simulation1(V, E, F):
     G = (V, E)
     accessible = {0:[0 for n in range(12)], 1:[0 for n in range(12)], 10:[0 for n in range(12)]}
     num_sample = 10
-    num_r = NUM_NODE
+    num_r = NUM_NODE//10
     num_culc = num_sample * num_r
     Q = (0, 1, 10)
     s = random.sample(V, num_sample) #送信者のリスト
     r_samp = random.sample(V, num_r) #受信者のリスト
-    avetime = {0:0, 1:0, 10:0}
-    length = []
+    length = {0:[0 for n in range(12)], 1:[0 for n in range(12)], 10:[0 for n in range(12)]}
     Fstar = {}
     for key in F.keys():
         Fstar[key] = 1
@@ -545,6 +544,7 @@ def Simulation1(V, E, F):
     print("average time")
     print("Nbc 0 1 10")
     for i in range(12): #ビーコンの数
+        avetime = {0:0, 1:0, 10:0}
         for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
             Beacon_Discovery(s[j], i, F)
             for r in r_samp:
@@ -560,9 +560,8 @@ def Simulation1(V, E, F):
                             #    pathplot(pi, rr[pi])
                             accessible[tab][i] += 1
                             maxp = max(rr, key=rr.get)
-                            length.append(len(maxp) - len(Pdk))
-        print("{} {} {} {}".format(i, avetime[0]/num_r, avetime[1]/num_r, avetime[10]/num_r))
-        avetime = {0:0, 1:0, 10:0}
+                            length[tab][i].append(len(maxp) - len(Pdk))
+        print("{} {} {} {}".format(i, avetime[0]/num_culc, avetime[1]/num_culc, avetime[10]/num_culc))
     te = time.time()
     print("Accessible")
     print("Nbc 0 1 10 exxess")
@@ -620,12 +619,12 @@ def Simulation3(V, E, F):
     Q = (0, 1, 10)
     s = random.sample(V, num_sample)
     r_samp = random.sample(V, num_r)
-    avetime = {0:0, 1:0, 10:0}
     ts = time.time()
     print("average time")
     print("Nbc 0 1 10")
     for i in range(12): #ビーコンの数
-        for j in range(10): #送金を行うノード候補のリストsのインデックス
+        avetime = {0:[], 1:[], 10:[]}
+        for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
             Beacon_Discovery(s[j], i, F)
             for r in r_samp:
                 if s[j] != r:
@@ -633,13 +632,15 @@ def Simulation3(V, E, F):
                         t1 = time.time()
                         P, rr = Candicate_rotes(s[j], r, 5, 10, tab)
                         t2 = time.time()
-                        avetime[tab] += t2 - t1
+                        avetime[tab].append(t2 - t1)
                         if len(P) != 0:
                             #for pi in P:
                             #    pathplot(pi, rr[pi])
                             accessible[tab][i] += 1
-        print("{} {} {} {}".format(i, avetime[0]/num_r, avetime[1]/num_r, avetime[10]/num_r))
-        avetime = {0:0, 1:0, 10:0}
+        avetime0 = sum(avetime[0])/len(avetime[0])
+        avetime1 = sum(avetime[1])/len(avetime[1])
+        avetime10 = sum(avetime[10])/len(avetime[10])
+        print("{} {} {} {}".format(i, avetime0, avetime1, avetime10))
 
     te = time.time()
     print("Accessible")
@@ -674,7 +675,7 @@ if __name__ == "__main__":
     print(": {}[s]".format(t2-t1))
     #plotLN(V, E)
     print("simulation start")
-    Simulation1(V, E, F)
+    Simulation3(V, E, F)
     #u = V[1]
     #Beacon_Discovery(u, NBC, F)
     #Candicate_rotes(V[0], V[1], 3, 10)
