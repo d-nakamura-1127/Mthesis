@@ -75,6 +75,9 @@ class Node:
         self.fee = dict()
         self.nb = list() #このノードの近傍を記録するリスト
         self.dist = dict() #各ノードへの最短距離を格納する
+        self.M = set() #RTに新しく追加されたチャネルを記録
+        self.Mr = set() #RTから削除されたチャネルを記録
+        self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
 
     def print_node(self):
         print("name {}, adj {}, RT {}".format(self.name, self.adj, self.RT))
@@ -124,6 +127,25 @@ class Node:
                     self.path[k] = vpath + v.path[k]
                 else:
                     continue
+    
+    def delete(self, e):
+        #selfのRTからeを削除し、削除した辺の集合Mrにeを追加、更新した頂点の集合Vupdに自信を追加
+        #cap.path,feeからも対応する辺を削除
+        self.RT.remove(e)
+        self.Mr.add(e)
+        self.cap.pop(e)
+        self.cap.pop(e[::-1])
+        self.fee.pop(e)
+        self.fee.pop(e[::-1])
+        e_list = list(e)
+        u = e_list.remove(self)
+        self.path.pop(u[0])
+
+    def Add(self, e, ncap, nfee, F):
+        self.set_adj_edge(e)
+        self.cap[e] = self.cap[e[::-1]] = ncap
+        self.fee[e] = self.fee[e[::-1]] = F[e] = F[e[::-1]] = nfee
+        self.M.add(e)
 
 def plotLN(V, E):
     #作成したネットワークをプロットして確認する用
@@ -303,9 +325,11 @@ def RT_UPD(u, v, M, Mr):
             u.RT.add(e)
             u.cap[e] = u.cap[e[::-1]] = v.cap[e]
             u.fee[e] = u.fee[e[::-1]] = v.fee[e]
+            u.M.add(e)
 
     for e in set(Mr) & u.RT:
         u.RT.remove(e)
+        u.Mr.add(e)
 
 def hop_address(u, v):
     #ノードu,v感のアドレス距離を計算する
@@ -486,40 +510,65 @@ def make_network():
                 print("hoge")
     return V, Emiddle, F
 
+def LN_UPD(V, E, F):
+    #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
+    Eadd = 10
+    Vadd = 5
+    Edel = 10 #追加、削除する辺、頂点の数
+    Vdel = 3
+    Vupd = set() #RTが更新されたノードの集合
 
-def make_network2():
-    #ライトニングネットワークをランダムに作成する
-    #ノード数：NUM＿NODE　辺は確率PROB_EDGEで生成する
-    V = [Node(n) for n in range(NUM_NODE)]
+    ebar = random.sample(E, Edel)
+    vbar = random.sample(V, Vdel)
 
-    E = []
-    F = {(i,j):math.inf for i in V for j in V}
-    for v in V:
-        F[(v,v)]=0
-    for n in range(NUM_NODE):
-        for m in range(n+1, NUM_NODE): #ノードの集合Vから順番に2つノードを選択する
-            if random.random() < PROB_EDGE:
-                e = (V[n], V[m])
-                E.append(e)
-                V[n].set_adj_edge(e)
-                V[m].set_adj_edge(e)
-                e[0].cap[e] = e[0].cap[e[::-1]] = \
-                e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
-                e[0].fee[e] = e[0].fee[e[::-1]] = \
-                e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
-    
-    print("|V|={}, |E|={}".format(len(V), len(E)))
+    #辺を消す
+    for j in range(len(ebar)):
+        e = ebar[j]
+        E.remove(e)
+        e[0].delete(e)
+        e[1].delete(e)
+        Vupd.add(e[0])
+        Vupd.add(e[1])
 
-    connect(V, E)
+    #ノードをノンアクティブにする
+    for v in vbar:
+        for u in v.adj:
+            v.active = 0
+            e = (v, u)
+            u.delete(e)
+            Vupd.add(u)
 
-    for v in range(NUM_NODE):
-        for u in V[v].adj:
-            RT_UPD(V[u.name], V[v], V[v].RT, {})
+    #新しいチャネルを追加    
+    add_num = 0
+    while add_num < Eadd:
+        e = random.sample(V, 2)
+        if e not in E and e[::-1] not in E:
+            cap = random.randint(MIN_CAP, MAX_CAP)
+            fee = random.randint(1, 10)
+            e[0].Add(e, cap, fee, F)
+            e[1].Add(e, cap, fee, F)
+            Vupd.add(e[0])
+            Vupd.add(e[1])
+            add_num += 1
 
-    for n in range(NUM_NODE):
-        V[n].print_node()
+    #新しいノードを追加
+    add_num = 0
+    while add_num < Vadd:
+        adj = random.sample(V, 4)
+        v = Node(len(V) + add_num + 1)
+        for u in adj:
+            e = (u, v)
+            cap = random.randint(MIN_CAP, MAX_CAP)
+            fee = random.randint(1, 10)
+            e[0].Add(e, cap, fee, F)
+            e[1].Add(e, cap, fee, F)
+            Vupd.add(u)
+            Vupd.add(v)
 
-    return V,E,F
+    while len(Vupd) > 0:
+        
+
+
 
 def pathplot(path, rr):
     print("(", end="")
