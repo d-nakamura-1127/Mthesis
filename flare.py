@@ -16,7 +16,7 @@ import queue
 
 MAX_CAP = 100
 MIN_CAP = 10
-NUM_NODE = 1000 #ネットワークのノードの数
+NUM_NODE = 2000 #ネットワークのノードの数
 PROB_EDGE = 0.3 #ノード間にチャネルが存在する確率
 RNB = 2 #近隣半径
 NBC = 5 #ビーコンの数
@@ -131,15 +131,25 @@ class Node:
     def delete(self, e):
         #selfのRTからeを削除し、削除した辺の集合Mrにeを追加、更新した頂点の集合Vupdに自信を追加
         #cap.path,feeからも対応する辺を削除
-        self.RT.remove(e)
-        self.Mr.add(e)
-        self.cap.pop(e)
-        self.cap.pop(e[::-1])
-        self.fee.pop(e)
-        self.fee.pop(e[::-1])
-        e_list = list(e)
-        u = e_list.remove(self)
-        self.path.pop(u[0])
+        if e[::-1] in self.RT:
+            e = e[::-1]
+
+        if e in self.RT:
+            self.RT.remove(e)
+            self.Mr.add(e)
+            self.cap.pop(e)
+            self.cap.pop(e[::-1])
+            self.fee.pop(e)
+            self.fee.pop(e[::-1])
+            u = list(e)
+            if self in u:
+                u.remove(self)
+            for ei in u:
+                if ei in self.dist.keys():
+                    self.dist.pop(ei)
+                    self.path.pop(ei)
+                if ei in self.adj:
+                    self.adj.remove(ei)
 
     def Add(self, e, ncap, nfee, F):
         self.set_adj_edge(e)
@@ -212,17 +222,6 @@ def Dijkstra(s, g, G, cap):
         path.insert(0, previous_node[current])
         current = previous_node[current]
     return distance[g], tuple(path)  #始点から終点までの最短距離とパスを返す
-
-def warshall_floyd(F, next_node):
-    #グラフの隣接行列Fから全頂点間の最短経路を求めたい
-    for k in range(NUM_NODE):
-        for i in range(NUM_NODE):
-            for j in range(NUM_NODE):
-                if F[(i,j)] > F[(i,k)] + F[(k,j)]:
-                    F[(i,j)] = F[(i,k)] + F[(k,j)]
-                    next_node[(i,j)] = next_node[(i,k)] 
-    return F
-
 
 def Yen_Algorithm(s, g, G, cap, k):
     #始点sから終点gに至るまでの経路の中で１番目からk番目に短いパスを作成する
@@ -328,7 +327,7 @@ def RT_UPD(u, v, M, Mr):
             u.M.add(e)
 
     for e in set(Mr) & u.RT:
-        u.RT.remove(e)
+        u.delete(e)
         u.Mr.add(e)
 
 def hop_address(u, v):
@@ -481,7 +480,7 @@ def make_network():
     #最近傍の数がknb個になるように近くのノードとエッジを貼る
     for i in range(NUM_NODE):
         for n in range(2,(knb//2)+1):
-            E.append((V[i], V[i-n]))
+            E.append((V[i-n], V[i]))
 
     Emiddle = copy.copy(E) #張替え後のエッジを格納する
     #全ての辺について確率PROB_EDGEで張替える。
@@ -490,9 +489,12 @@ def make_network():
             #貼り替える場合ランダムに頂点vを1つ選択し、辺(e[0],v)がすでに存在しなければ追加、元の辺を削除
             v = random.choice(V)
             if e[0] != v and (e[0], v) not in Emiddle and (v, e[0]) not in Emiddle:
-                Emiddle.append((e[0], v))
                 Emiddle.remove(e)
-                e = (e[0], v)
+                if e[0].name < v.name:
+                    e = (e[0], v)
+                else:
+                    e = (v, e[0])
+                Emiddle.append(e)
         #エッジを張り替えるかの処理が終わったら、そのエッジは確定するので隣接とcap,feeを処理する
         e[0].set_adj_edge(e)
         e[1].set_adj_edge(e)
@@ -541,7 +543,7 @@ def LN_UPD(V, E, F):
     #新しいチャネルを追加    
     add_num = 0
     while add_num < Eadd:
-        e = random.sample(V, 2)
+        e = tuple(random.sample(V, 2))
         if e not in E and e[::-1] not in E:
             cap = random.randint(MIN_CAP, MAX_CAP)
             fee = random.randint(1, 10)
@@ -564,8 +566,19 @@ def LN_UPD(V, E, F):
             e[1].Add(e, cap, fee, F)
             Vupd.add(u)
             Vupd.add(v)
+        add_num += 1
 
-    while len(Vupd) > 0:
+    while Vupd:
+        v = list(Vupd)[0]
+        for u in v.adj:
+            RT_UPD(u, v, v.M, v.Mr)
+            #受信ノードuのRTが更新されていたらVupdに追加
+            if len(u.M) > 0 or len(u.Mr) > 0: 
+                Vupd.add(u)
+        #送信ノードvのM,Mrを一度初期化
+        v.M = set()
+        v.Mr = set()
+        Vupd.remove(v)
         
 
 
@@ -722,9 +735,18 @@ if __name__ == "__main__":
     V, E, F = make_network()
     t2 = time.time()
     print(": {}[s]".format(t2-t1))
-    #plotLN(V, E)
-    print("simulation start")
-    Simulation3(V, E, F)
+    for v in V:
+        v.M = set()
+        v.Mr = set()
+    plotLN(V, E)
+    print("UPD start")
+    t1 = time.time()
+    LN_UPD(V, E, F)
+    t2 = time.time()
+    print(": {}[s]".format(t2-t1))
+    plotLN(V, E)
+    #print("simulation start")
+    #Simulation3(V, E, F)
     #u = V[1]
     #Beacon_Discovery(u, NBC, F)
     #Candicate_rotes(V[0], V[1], 3, 10)
