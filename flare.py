@@ -427,6 +427,7 @@ def Beacon_Discovery(u, Nbc, F):
             for i in range(len(zpath[v])-1):
                 e = (zpath[v][i], zpath[v][i+1])
                 #ここでeのルーティングテーブルも更新しないとこの後おかしくなる
+                #ここでRTにe,e[::-1]があるかどうか確認したほうがいい
                 u.RT.add(e)
                 u.fee[e] = u.fee[e[::-1]] = F[e]
                 u.cap[e] = u.cap[e[::-1]] = e[0].cap[e]
