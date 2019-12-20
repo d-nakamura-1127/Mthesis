@@ -16,7 +16,7 @@ import queue
 
 MAX_CAP = 100
 MIN_CAP = 10
-NUM_NODE = 2000 #ネットワークのノードの数
+NUM_NODE = 20 #ネットワークのノードの数
 PROB_EDGE = 0.3 #ノード間にチャネルが存在する確率
 RNB = 2 #近隣半径
 NBC = 5 #ビーコンの数
@@ -67,7 +67,7 @@ class Node:
         self.address = key.address
         self.pubkey = key.pubkey
         self.RT = set() #ルーティングテーブル。セットとして実装 (u, v) u,v in V
-        self.path = dict()
+        self.path = dict() #self.path[r]:ノードrへの最短経路
         self.cap = dict() #辞書型として実装
         self.adj = list() #距離1の範囲内にある(直接チャネルで繋がっている)ノードのリスト
         self.bc = set() #ビーコンを格納する
@@ -78,6 +78,7 @@ class Node:
         self.M = set() #RTに新しく追加されたチャネルを記録
         self.Mr = set() #RTから削除されたチャネルを記録
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
+        self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
 
     def print_node(self):
         print("name {}, adj {}, RT {}".format(self.name, self.adj, self.RT))
@@ -156,6 +157,9 @@ class Node:
         self.cap[e] = self.cap[e[::-1]] = ncap
         self.fee[e] = self.fee[e[::-1]] = F[e] = F[e[::-1]] = nfee
         self.M.add(e)
+        u = list(e)
+        u.remove(self)
+        self.M = self.M & u[0].RT
 
 def plotLN(V, E):
     #作成したネットワークをプロットして確認する用
@@ -281,7 +285,14 @@ def Yen_Algorithm(s, g, G, cap, k):
         B.remove(B[0])
     return [row[1] for row in A]
 
-
+def check_path(p):
+    for v in p:
+        if v.active == 0:
+            return False
+    for i in range(len(p)-1):
+        if p[i+1] not in p[i].adj:
+            return False
+    return True
 
 def dchan(u, e, G, cap):
     #グラフGにおいて、ノードuからチャネルeまでの最小距離を計算する
@@ -295,14 +306,26 @@ def dchan(u, e, G, cap):
         e[0].path[u] = D1[1][::-1]
         u.dist[e[0]] = e[0].dist[u] = D1[0]
     else:
-        D1 = (u.dist[e[0]], u.path[e[0]])
+        if check_path(u.path[e[0]]):
+            D1 = (u.dist[e[0]], u.path[e[0]])
+        else:
+            D1 = Dijkstra(u, e[0], G, cap)
+            u.path[e[0]] = D1[1]
+            e[0].path[u] = D1[1][::-1]
+            u.dist[e[0]] = e[0].dist[u] = D1[0]
     if e[1] not in u.dist.keys():
         D2 = Dijkstra(u, e[1], G, cap)
         u.path[e[1]] = D2[1]
         e[1].path[u] = D2[1][::-1]
         u.dist[e[1]] = e[1].dist[u] = D2[0]
     else:
-        D2 = (u.dist[e[1]], u.path[e[1]])
+        if check_path(u.path[e[1]]):
+            D2 = (u.dist[e[1]], u.path[e[1]])
+        else:
+            D2 = Dijkstra(u, e[1], G, cap)
+            u.path[e[1]] = D2[1]
+            e[1].path[u] = D2[1][::-1]
+            u.dist[e[1]] = e[1].dist[u] = D2[0]
     return min(D1[0], D2[0])
 
 
@@ -324,11 +347,9 @@ def RT_UPD(u, v, M, Mr):
             u.RT.add(e)
             u.cap[e] = u.cap[e[::-1]] = v.cap[e]
             u.fee[e] = u.fee[e[::-1]] = v.fee[e]
-            u.M.add(e)
 
     for e in set(Mr) & u.RT:
         u.delete(e)
-        u.Mr.add(e)
 
 def hop_address(u, v):
     #ノードu,v感のアドレス距離を計算する
@@ -411,7 +432,9 @@ def Beacon_Discovery(u, Nbc, F):
                 u.cap[e] = u.cap[e[::-1]] = e[0].cap[e]
                 if zpath[v][i+1] not in u.path.keys():
                     u.path[zpath[v][i+1]] = zpath[v][0:i+2]
+                    u.dist[zpath[v][i+1]] = len(zpath[v][0:i+2])
             u.path[v] = zpath[v]
+            u.dist[v] = len(zpath[v])
             v.rb = u
     
 
@@ -426,6 +449,15 @@ def Candicate_rotes(s, r, k, f, Ntab):
     cap = dict()
     rr = dict() #パスpの評価値を格納する
     Mbar = set()
+
+    #もしs-r間に既知のパスがあり、経由するノード全てがアクティブでチャネルが消えてないならそのパスをそのまま使う。
+    if r in s.candicate.keys():
+        for path in s.candicate[r]:
+            if check_path(path):
+                P.add(path)
+                rr[path] = route_ranking(f, path)
+            else:
+                s.candicate[r].remove(path)
 
     #ここでcapが送金額より少ないチャネルを除外する。これがあるせいで送金できないパスを見つけてしまい目標の本数まで至っていない
     cap.update(s.cap)
@@ -455,6 +487,8 @@ def Candicate_rotes(s, r, k, f, Ntab):
             fee.update(c.fee)
             cap.update(c.cap)
             U.add(c)
+    #発見した候補ルートを記録
+    s.candicate[r] = P
     return P, rr
 
 def route_ranking(f, p):
@@ -523,27 +557,37 @@ def LN_UPD(V, E, F):
     ebar = random.sample(E, Edel)
     vbar = random.sample(V, Vdel)
 
+    print("evar=(",end="")
     #辺を消す
     for j in range(len(ebar)):
         e = ebar[j]
+        print("({}, {}), ".format(ebar[j][0].name, ebar[j][1].name), end="")
         E.remove(e)
         e[0].delete(e)
         e[1].delete(e)
         Vupd.add(e[0])
         Vupd.add(e[1])
+        NEIGHBOR_UPD(Vupd)
+    print(")")
 
+    print("vbar=(",end = "")
     #ノードをノンアクティブにする
     for v in vbar:
+        print(v.name, ", ", end="")
         for u in v.adj:
             v.active = 0
             e = (v, u)
             u.delete(e)
             Vupd.add(u)
+            NEIGHBOR_UPD(Vupd)
+    print(")")
 
     #新しいチャネルを追加    
     add_num = 0
+    print("new edge=(",end="")
     while add_num < Eadd:
         e = tuple(random.sample(V, 2))
+        print("({}, {}), ".format(e[0].name, e[1].name), end="")
         if e not in E and e[::-1] not in E:
             cap = random.randint(MIN_CAP, MAX_CAP)
             fee = random.randint(1, 10)
@@ -552,12 +596,18 @@ def LN_UPD(V, E, F):
             Vupd.add(e[0])
             Vupd.add(e[1])
             add_num += 1
+            NEIGHBOR_UPD(Vupd)
+    print(")")
 
     #新しいノードを追加
     add_num = 0
+    print("new node=", end = "")
+    lenV = len(V)
     while add_num < Vadd:
         adj = random.sample(V, 4)
-        v = Node(len(V) + add_num + 1)
+        v = Node(lenV + add_num + 1)
+        V.append(v)
+        print(v.name, ", ", end="")
         for u in adj:
             e = (u, v)
             cap = random.randint(MIN_CAP, MAX_CAP)
@@ -566,10 +616,15 @@ def LN_UPD(V, E, F):
             e[1].Add(e, cap, fee, F)
             Vupd.add(u)
             Vupd.add(v)
+            NEIGHBOR_UPD(Vupd)
         add_num += 1
+    print("")
+        
 
+def NEIGHBOR_UPD(Vupd):
     while Vupd:
         v = list(Vupd)[0]
+        #print("UPD ",v.name)
         for u in v.adj:
             RT_UPD(u, v, v.M, v.Mr)
             #受信ノードuのRTが更新されていたらVupdに追加
@@ -579,9 +634,20 @@ def LN_UPD(V, E, F):
         v.M = set()
         v.Mr = set()
         Vupd.remove(v)
-        
 
 
+def check_RT(v, F1):
+    #応急措置
+    #ノードvのRTに含まれるエッジe=(x,y)についてvからx,yそれぞれへのパスと距離が登録されているかを確認、
+    #なければ追加する。
+    #本来RT内に存在するノードへの距離は全て把握しているはずだから、こんなことしなくていい
+    #どっかバグってる
+    for e in v.RT:
+        RTpre = list(v.RT)
+        Gpre = (Nodes(RTpre), RTpre)
+        if e[0] not in v.path.keys() or e[1] not in v.path.keys():
+            dchan(v, e, Gpre, F1)
+            
 
 def pathplot(path, rr):
     print("(", end="")
@@ -631,7 +697,6 @@ def Simulation1(V, E, F):
         print("{} {} {} {} {}".format(n, accessible[0][n]/num_culc, accessible[1][n]/num_culc, accessible[10][n]/num_culc, sum(length)/len(length)))
     #print("average_time = {}".format(avetime/(num_culc*12*3)))
     print("total_time = {}".format(te-ts))
-
 
 def Simulation2(V, E, F):
     G = (V, E)
@@ -712,6 +777,51 @@ def Simulation3(V, E, F):
     #print("average_time = {}".format(avetime/(num_culc*12*3)))
     print("total_time = {}".format(te-ts))
 
+def Simulation4(V, E, F):
+    #時間による変化を導入する。
+    #平均計算時間を求めない
+    #時刻tにおいてパスを発見できた割合と時刻t-1からtになってパスが見つからなくなった割合、見つかるようになった割合をだす
+    G = (V, E)
+    num_sample = 10
+    num_r = NUM_NODE//10
+    num_culc = num_sample * num_r
+    s = random.sample(V, num_sample)
+    r_samp = random.sample(V, num_r)
+    #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
+    accessible = {t:{(v, u): 0 for v in s for u in r_samp} for t in range(60)}
+    print("Accessible")
+    print("t  %/100")
+    find = 0
+    disfind = 0
+    for t in range(60):
+        for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
+            Beacon_Discovery(s[j], 6, F)
+            for r in r_samp:
+                if s[j] != r:
+                    P, rr = Candicate_rotes(s[j], r, 5, 10, 10)
+                    if len(P) != 0:
+                        #for pi in P:
+                        #    pathplot(pi, rr[pi])
+                        maxp = max(rr, key=rr.get)
+                        s[j].path[r] = maxp
+                        accessible[t][(s[j], r)] = 1
+        ave = sum(accessible[t].values()) / len(accessible[t])
+        if t > 0:
+            for sr in accessible[t].keys():
+                if accessible[t][sr] == 1 and accessible[t-1][sr] == 0:
+                    find += 1
+                elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
+                    disfind += 1
+        print("{} {} {} {}".format(t, ave, find/num_culc, disfind/num_culc))
+        LN_UPD(V, E, F)
+        F1 = {k:1 for k in E}
+        ts = time.time()
+        for v in V:
+            check_RT(v, F1)
+        te = time.time()
+        print("check_RT time: ", (te-ts)/len(V))
+
+
 def connect(V, E):
     q = queue.Queue()
     F = [False for n in range(NUM_NODE)]
@@ -739,15 +849,6 @@ if __name__ == "__main__":
         v.M = set()
         v.Mr = set()
     plotLN(V, E)
-    print("UPD start")
-    t1 = time.time()
-    LN_UPD(V, E, F)
-    t2 = time.time()
-    print(": {}[s]".format(t2-t1))
-    plotLN(V, E)
-    #print("simulation start")
-    #Simulation3(V, E, F)
-    #u = V[1]
-    #Beacon_Discovery(u, NBC, F)
-    #Candicate_rotes(V[0], V[1], 3, 10)
-    #print("hoge")
+    print("simulation start")
+    Simulation4(V, E, F)
+    #plotLN(V, E)
