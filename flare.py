@@ -13,10 +13,11 @@ import random
 import math
 import copy
 import queue
+import collections
 
 MAX_CAP = 100
 MIN_CAP = 10
-NUM_NODE = 20 #ネットワークのノードの数
+NUM_NODE = 2000 #ネットワークのノードの数
 PROB_EDGE = 0.3 #ノード間にチャネルが存在する確率
 RNB = 2 #近隣半径
 NBC = 5 #ビーコンの数
@@ -109,7 +110,7 @@ class Node:
             ahop = hop_address(self, u)
             for z in list(B):
                 each_hop = hop_address(u, z)
-                if each_hop < ahop:
+                if each_hop < ahop and check_path(self.path[z]):
                     Cv.add(z)
                     Mv[z] = list(self.path[z])
                 B.remove(z)
@@ -151,6 +152,9 @@ class Node:
                     self.path.pop(ei)
                 if ei in self.adj:
                     self.adj.remove(ei)
+        
+        if e[::-1] in self.RT:
+            self.RT.remove(e[::-1])
 
     def Add(self, e, ncap, nfee, F):
         self.set_adj_edge(e)
@@ -286,6 +290,7 @@ def Yen_Algorithm(s, g, G, cap, k):
     return [row[1] for row in A]
 
 def check_path(p):
+    #パスpについて、使用しているノードが全てアクティブか、辺が繋がっていないはずの場所を通っていないか確認
     for v in p:
         if v.active == 0:
             return False
@@ -360,6 +365,15 @@ def hop_address(u, v):
     return int(u.pubkey, 16) ^ int(v.pubkey, 16) 
 
 def Beacon_Discovery(u, Nbc, F):
+    if len(u.adj) == 0:
+        return
+    new_bc = set()
+    #もしu.bcがから出なかった場合、u.bcへのパスがちゃんと繋がっているかを確認
+    while u.bc:
+        v = u.bc.pop()
+        if check_path(u.path[v]):
+            new_bc.add(v)
+    u.bc = new_bc
     node = Nodes(list(u.RT))
     node.remove(u)
     B = set(node)
@@ -428,9 +442,10 @@ def Beacon_Discovery(u, Nbc, F):
                 e = (zpath[v][i], zpath[v][i+1])
                 #ここでeのルーティングテーブルも更新しないとこの後おかしくなる
                 #ここでRTにe,e[::-1]があるかどうか確認したほうがいい
-                u.RT.add(e)
-                u.fee[e] = u.fee[e[::-1]] = F[e]
-                u.cap[e] = u.cap[e[::-1]] = e[0].cap[e]
+                if e not in u.RT and e[::-1] not in u.RT:
+                    u.RT.add(e)
+                    u.fee[e] = u.fee[e[::-1]] = F[e]
+                    u.cap[e] = u.cap[e[::-1]] = e[0].cap[e]
                 if zpath[v][i+1] not in u.path.keys():
                     u.path[zpath[v][i+1]] = zpath[v][0:i+2]
                     u.dist[zpath[v][i+1]] = len(zpath[v][0:i+2])
@@ -452,13 +467,16 @@ def Candicate_rotes(s, r, k, f, Ntab):
     Mbar = set()
 
     #もしs-r間に既知のパスがあり、経由するノード全てがアクティブでチャネルが消えてないならそのパスをそのまま使う。
+    pbar = set()
     if r in s.candicate.keys():
         for path in s.candicate[r]:
             if check_path(path):
                 P.add(path)
                 rr[path] = route_ranking(f, path)
             else:
-                s.candicate[r].remove(path)
+                pbar.add(path)
+        for rm_path in pbar:
+            s.candicate[r].remove(rm_path)
 
     #ここでcapが送金額より少ないチャネルを除外する。これがあるせいで送金できないパスを見つけてしまい目標の本数まで至っていない
     cap.update(s.cap)
@@ -550,9 +568,9 @@ def make_network():
 def LN_UPD(V, E, F):
     #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
     Eadd = 10
-    Vadd = 5
+    Vadd = 0
     Edel = 10 #追加、削除する辺、頂点の数
-    Vdel = 3
+    Vdel = 0
     Vupd = set() #RTが更新されたノードの集合
 
     ebar = random.sample(E, Edel)
@@ -578,6 +596,7 @@ def LN_UPD(V, E, F):
         for u in v.adj:
             v.active = 0
             e = (v, u)
+            ebar.append(e)
             u.delete(e)
             Vupd.add(u)
             NEIGHBOR_UPD(Vupd)
@@ -590,6 +609,7 @@ def LN_UPD(V, E, F):
         e = tuple(random.sample(V, 2))
         print("({}, {}), ".format(e[0].name, e[1].name), end="")
         if e not in E and e[::-1] not in E:
+            E.append(e)
             cap = random.randint(MIN_CAP, MAX_CAP)
             fee = random.randint(1, 10)
             e[0].Add(e, cap, fee, F)
@@ -611,6 +631,7 @@ def LN_UPD(V, E, F):
         print(v.name, ", ", end="")
         for u in adj:
             e = (u, v)
+            E.append(e)
             cap = random.randint(MIN_CAP, MAX_CAP)
             fee = random.randint(1, 10)
             e[0].Add(e, cap, fee, F)
@@ -620,7 +641,105 @@ def LN_UPD(V, E, F):
             NEIGHBOR_UPD(Vupd)
         add_num += 1
     print("")
+    check_vRT(V, ebar)
         
+def RT_remake(V, E, F):
+    #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
+    Eadd = 10
+    Vadd = 0
+    Edel = 10 #追加、削除する辺、頂点の数
+    Vdel = 0
+    Vupd = set() #RTが更新されたノードの集合
+
+    ebar = random.sample(E, Edel)
+    vbar = random.sample(V, Vdel)
+
+    for v in V:
+        v.RT = set()
+
+    #print("evar=(",end="")
+    #辺を消す
+    for j in range(len(ebar)):
+        e = ebar[j]
+        #print("({}, {}), ".format(ebar[j][0].name, ebar[j][1].name), end="")
+        E.remove(e)
+        e[0].adj.remove(e[1])
+        e[1].adj.remove(e[0])
+    #print(")")
+
+    #print("vbar=(",end = "")
+    #ノードをノンアクティブにする
+    for v in vbar:
+        #print(v.name, ", ", end="")
+        for u in v.adj:
+            v.active = 0
+            e = (v, u)
+            E.remove(e)
+            ebar.append(e)
+            u.adj.remove(v)
+    #print(")")
+
+    for v in V:
+        for u in v.adj:
+            if v.name < u.name:
+                e = (v,u)
+            else:
+                e = (u,v)
+            v.RT.add(e)
+
+    #新しいチャネルを追加    
+    add_num = 0
+    #print("new edge=(",end="")
+    while add_num < Eadd:
+        e = tuple(random.sample(V, 2))
+        #print("({}, {}), ".format(e[0].name, e[1].name), end="")
+        if e not in E and e[::-1] not in E:
+            E.append(e)
+            e[0].cap[e] = e[0].cap[e[::-1]] = \
+            e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+            e[0].fee[e] = e[0].fee[e[::-1]] = \
+            e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+            e[0].set_adj_edge(e)
+            e[1].set_adj_edge(e)
+            add_num += 1
+    #print(")")
+
+    #新しいノードを追加
+    add_num = 0
+    #print("new node=", end = "")
+    lenV = len(V)
+    while add_num < Vadd:
+        adj = random.sample(V, 4)
+        v = Node(lenV + add_num + 1)
+        V.append(v)
+        #print(v.name, ", ", end="")
+        for u in adj:
+            e = (u, v)
+            E.append(e)
+            u.set_adj_edge(e)
+            v.set_adj_edge(e)
+            u.cap[e] = u.cap[e[::-1]] = \
+            v.cap[e] = v.cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+            u.fee[e] = u.fee[e[::-1]] = \
+            v.fee[e] = v.fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+        add_num += 1
+    #print("")
+
+    for v in range(NUM_NODE):
+        for u in V[v].adj:
+            RT_UPD(V[u.name], V[v], V[v].RT, {})
+    
+
+def check_vRT(V, ebar):
+    #確認用の関数。使い終わったら削除
+    #ノードvのRTにすでに削除したはずのエッジe in ebarがないか確認する。
+    for v in V:
+        for e in ebar:
+            if e in v.RT:
+                v.RT.remove(e)
+            if e[::-1] in v.RT:
+                v.RT.remove(e[::-1])
+                
 
 def NEIGHBOR_UPD(Vupd):
     while Vupd:
@@ -635,7 +754,6 @@ def NEIGHBOR_UPD(Vupd):
         v.M = set()
         v.Mr = set()
         Vupd.remove(v)
-
 
 def check_RT(v, F1):
     #応急措置
@@ -789,12 +907,14 @@ def Simulation4(V, E, F):
     s = random.sample(V, num_sample)
     r_samp = random.sample(V, num_r)
     #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
-    accessible = {t:{(v, u): 0 for v in s for u in r_samp} for t in range(60)}
+    accessible = {t:{(v, u): 0 for v in s for u in r_samp} for t in range(30)}
     print("Accessible")
     print("t  %/100")
     find = 0
     disfind = 0
-    for t in range(60):
+    access = 0
+    disaccess = 0
+    for t in range(30):
         for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
             Beacon_Discovery(s[j], 6, F)
             for r in r_samp:
@@ -807,20 +927,31 @@ def Simulation4(V, E, F):
                         s[j].path[r] = maxp
                         accessible[t][(s[j], r)] = 1
         ave = sum(accessible[t].values()) / len(accessible[t])
+        c = collections.Counter(accessible[t].values())
+        access += c[1]
+        disaccess += c[0]
         if t > 0:
             for sr in accessible[t].keys():
                 if accessible[t][sr] == 1 and accessible[t-1][sr] == 0:
                     find += 1
                 elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
                     disfind += 1
-        print("{} {} {} {}".format(t, ave, find/num_culc, disfind/num_culc))
-        LN_UPD(V, E, F)
-        F1 = {k:1 for k in E}
+        print("{} {}".format(t, ave))
+        ts = time.time()
+        RT_remake(V, E, F)
+        te = time.time()
+        print("RT_remake time: ", te-ts)
+        F1 = {}
+        for k in E:
+            F1[k] = 1
+            F1[k[::-1]] = 1
         ts = time.time()
         for v in V:
             check_RT(v, F1)
         te = time.time()
         print("check_RT time: ", (te-ts)/len(V))
+    print("access %, disaccess %")
+    print(find/access, ", ", disfind/disaccess)
 
 
 def connect(V, E):
@@ -849,7 +980,7 @@ if __name__ == "__main__":
     for v in V:
         v.M = set()
         v.Mr = set()
-    plotLN(V, E)
+    #plotLN(V, E)
     print("simulation start")
     Simulation4(V, E, F)
     #plotLN(V, E)
