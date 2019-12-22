@@ -565,6 +565,95 @@ def make_network():
                 print("hoge")
     return V, Emiddle, F
 
+def make_HaSnetwork():
+    #ハブアンドスポークネットワークを作成する
+    #まずノード数NUM_NODE/2のスモールワールドネットワークを2つ作成
+    #その2つの間に辺をいくつか張ることで作成する
+    knb = 4
+    V = [Node(n) for n in range(NUM_NODE)]
+    V1 = V[0:NUM_NODE//2]
+    V2 = V[NUM_NODE//2:NUM_NODE]
+    #ネットワークが円環状になるようにエッジを貼る
+    E1 = [(V1[i], V1[i+1]) for i in range(len(V1)-1)]
+    E2 = [(V2[i], V2[i+1]) for i in range(len(V2)-1)]
+    E1.append((V1[-1], V1[0]))
+    E2.append((V2[-1], V2[0]))
+    F = {(i,j):math.inf for i in V1 for j in V1}
+    F2 = {(i,j):math.inf for i in V2 for j in V2}
+
+    #最近傍の数がknb個になるように近くのノードとエッジを貼る
+    for i in range(NUM_NODE//2):
+        for n in range(2,(knb//2)+1):
+            E1.append((V1[i-n], V1[i]))
+            E2.append((V2[i-n], V2[i]))
+
+    Emiddle1 = copy.copy(E1) #張替え後のエッジを格納する
+    #全ての辺について確率PROB_EDGEで張替える。
+    for e in E1:
+        if random.random() < PROB_EDGE:
+            #貼り替える場合ランダムに頂点vを1つ選択し、辺(e[0],v)がすでに存在しなければ追加、元の辺を削除
+            v = random.choice(V1)
+            if e[0] != v and (e[0], v) not in Emiddle1 and (v, e[0]) not in Emiddle1:
+                Emiddle1.remove(e)
+                if e[0].name < v.name:
+                    e = (e[0], v)
+                else:
+                    e = (v, e[0])
+                Emiddle1.append(e)
+        #エッジを張り替えるかの処理が終わったら、そのエッジは確定するので隣接とcap,feeを処理する
+        e[0].set_adj_edge(e)
+        e[1].set_adj_edge(e)
+        e[0].cap[e] = e[0].cap[e[::-1]] = \
+        e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+        e[0].fee[e] = e[0].fee[e[::-1]] = \
+        e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+    
+    Emiddle2 = copy.copy(E2)
+    for e in E2:
+        if random.random() < PROB_EDGE:
+            #貼り替える場合ランダムに頂点vを1つ選択し、辺(e[0],v)がすでに存在しなければ追加、元の辺を削除
+            v = random.choice(V2)
+            if e[0] != v and (e[0], v) not in Emiddle2 and (v, e[0]) not in Emiddle2:
+                Emiddle2.remove(e)
+                if e[0].name < v.name:
+                    e = (e[0], v)
+                else:
+                    e = (v, e[0])
+                Emiddle2.append(e)
+        #エッジを張り替えるかの処理が終わったら、そのエッジは確定するので隣接とcap,feeを処理する
+        e[0].set_adj_edge(e)
+        e[1].set_adj_edge(e)
+        e[0].cap[e] = e[0].cap[e[::-1]] = \
+        e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+        e[0].fee[e] = e[0].fee[e[::-1]] = \
+        e[1].fee[e] = e[1].fee[e[::-1]] = F2[e] = F2[e[::-1]] = random.randint(1, 10)
+
+    Emiddle = Emiddle1 + Emiddle2
+    V = V1+V2
+    F.update(F2)
+
+    vb1 = random.sample(V1, 1)
+    vb2 = random.sample(V2, 1)
+
+    while vb1 and vb2:
+        e = (vb1.pop(), vb2.pop())
+        Emiddle.append(e)
+        e[0].set_adj_edge(e)
+        e[1].set_adj_edge(e)
+        e[0].cap[e] = e[0].cap[e[::-1]] = \
+        e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+        e[0].fee[e] = e[0].fee[e[::-1]] = \
+        e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+
+    print("|V|={}, |E|={}".format(len(V), len(Emiddle)))
+
+    for v in range(NUM_NODE):
+        for u in V[v].adj:
+            RT_UPD(V[u.name], V[v], V[v].RT, {})
+            if len(V[v].cap) != len(V[v].RT)*2:
+                print("hoge")
+    return V, Emiddle, F
+
 def LN_UPD(V, E, F):
     #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
     Eadd = 10
@@ -919,6 +1008,7 @@ def Simulation4(V, E, F):
             Beacon_Discovery(s[j], 6, F)
             for r in r_samp:
                 if s[j] != r:
+                    ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
                     P, rr = Candicate_rotes(s[j], r, 5, 10, 10)
                     if len(P) != 0:
                         #for pi in P:
@@ -974,7 +1064,7 @@ if __name__ == "__main__":
     address = Generater()
     print("make network", end="")
     t1 = time.time()
-    V, E, F = make_network()
+    V, E, F = make_HaSnetwork()
     t2 = time.time()
     print(": {}[s]".format(t2-t1))
     for v in V:
