@@ -30,7 +30,7 @@ class Generater():
         p = 2**256-2**32-2**9-2**8-2**7-2**6-2**4-1
         self.new_privkey(p)
         self.new_pubkey()
-        self.new_address(bytes.fromhex("00"))
+        #self.new_address(bytes.fromhex("00"))
 
     def new_privkey(self, p):
         privkey = secrets.randbelow(p)
@@ -65,7 +65,6 @@ class Node:
     def __init__(self, n):
         self.name = n
         key = Generater()
-        self.address = key.address
         self.pubkey = key.pubkey
         self.RT = set() #ルーティングテーブル。セットとして実装 (u, v) u,v in V
         self.path = dict() #self.path[r]:ノードrへの最短経路
@@ -654,6 +653,39 @@ def make_HaSnetwork():
                 print("hoge")
     return V, Emiddle, F
 
+def make_Starnetwork():
+    #星型のネットワークを作成
+    #中心となるノードを1つ定め、全てのノードは中心とのみ隣接する
+    V = [Node(n) for n in range(NUM_NODE)]
+    E = []
+    F = {(i,j):math.inf for i in V for j in V}
+    center_node = V[NUM_NODE//2]
+
+    for v in V:
+        if v != center_node:
+            if v.name < center_node.name:
+                e = (v, center_node)
+            else:
+                e = (center_node, v)
+            E.append(e)
+            #エッジを張り替えるかの処理が終わったら、そのエッジは確定するので隣接とcap,feeを処理する
+            e[0].set_adj_edge(e)
+            e[1].set_adj_edge(e)
+            e[0].cap[e] = e[0].cap[e[::-1]] = \
+            e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+            e[0].fee[e] = e[0].fee[e[::-1]] = \
+            e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+    
+    print("|V|={}, |E|={}".format(len(V), len(E)))
+
+    for v in range(NUM_NODE):
+        for u in V[v].adj:
+            RT_UPD(V[u.name], V[v], V[v].RT, {})
+            if len(V[v].cap) != len(V[v].RT)*2:
+                print("hoge")
+    return V, E, F
+            
+
 def LN_UPD(V, E, F):
     #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
     Eadd = 10
@@ -730,7 +762,6 @@ def LN_UPD(V, E, F):
             NEIGHBOR_UPD(Vupd)
         add_num += 1
     print("")
-    check_vRT(V, ebar)
         
 def RT_remake(V, E, F):
     #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
@@ -738,7 +769,6 @@ def RT_remake(V, E, F):
     Vadd = 0
     Edel = 10 #追加、削除する辺、頂点の数
     Vdel = 0
-    Vupd = set() #RTが更新されたノードの集合
 
     ebar = random.sample(E, Edel)
     vbar = random.sample(V, Vdel)
@@ -817,18 +847,6 @@ def RT_remake(V, E, F):
     for v in range(NUM_NODE):
         for u in V[v].adj:
             RT_UPD(V[u.name], V[v], V[v].RT, {})
-    
-
-def check_vRT(V, ebar):
-    #確認用の関数。使い終わったら削除
-    #ノードvのRTにすでに削除したはずのエッジe in ebarがないか確認する。
-    for v in V:
-        for e in ebar:
-            if e in v.RT:
-                v.RT.remove(e)
-            if e[::-1] in v.RT:
-                v.RT.remove(e[::-1])
-                
 
 def NEIGHBOR_UPD(Vupd):
     while Vupd:
@@ -906,7 +924,7 @@ def Simulation1(V, E, F):
     #print("average_time = {}".format(avetime/(num_culc*12*3)))
     print("total_time = {}".format(te-ts))
 
-def Simulation2(V, E, F):
+def Simulation1B(V, E, F):
     G = (V, E)
     accessible = [0 for n in range(12)]
     s = random.sample(V, 10)
@@ -944,7 +962,7 @@ def Simulation2(V, E, F):
     for n in range(1):
         print("{} {} {}".format(n, accessible[n]/1000, excess[n]))
 
-def Simulation3(V, E, F):
+def Simulation2(V, E, F):
     #ダイクストラで最短経路を求めない
     G = (V, E)
     accessible = {0:[0 for n in range(12)], 1:[0 for n in range(12)], 10:[0 for n in range(12)]}
@@ -985,14 +1003,12 @@ def Simulation3(V, E, F):
     #print("average_time = {}".format(avetime/(num_culc*12*3)))
     print("total_time = {}".format(te-ts))
 
-def Simulation4(V, E, F):
+def Simulation3(V, E, F):
     #時間による変化を導入する。
     #平均計算時間を求めない
     #時刻tにおいてパスを発見できた割合と時刻t-1からtになってパスが見つからなくなった割合、見つかるようになった割合をだす
-    G = (V, E)
     num_sample = 10
     num_r = NUM_NODE//10
-    num_culc = num_sample * num_r
     s = random.sample(V, num_sample)
     r_samp = random.sample(V, num_r)
     #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
@@ -1061,10 +1077,9 @@ def connect(V, E):
         print("LN is disconnected")
 
 if __name__ == "__main__":
-    address = Generater()
     print("make network", end="")
     t1 = time.time()
-    V, E, F = make_HaSnetwork()
+    V, E, F = make_Starnetwork()
     t2 = time.time()
     print(": {}[s]".format(t2-t1))
     for v in V:
