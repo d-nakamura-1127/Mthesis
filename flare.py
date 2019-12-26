@@ -372,6 +372,8 @@ def Beacon_Discovery(u, Nbc, F):
         v = u.bc.pop()
         if check_path(u.path[v]):
             new_bc.add(v)
+        else:
+            v.rb.remove(u)
     u.bc = new_bc
     node = Nodes(list(u.RT))
     node.remove(u)
@@ -450,7 +452,7 @@ def Beacon_Discovery(u, Nbc, F):
                     u.dist[zpath[v][i+1]] = len(zpath[v][0:i+2])
             u.path[v] = zpath[v]
             u.dist[v] = len(zpath[v])
-            v.rb = u
+            v.rb.append(u)
     
 
 def Candicate_rotes(s, r, k, f, Ntab):
@@ -495,6 +497,8 @@ def Candicate_rotes(s, r, k, f, Ntab):
             if rr[pi] != -math.inf:
                 #評価値が-infでなければリストに追加
                 P.add(pi)
+        if len(beacon - U) == 0:
+            break
         if len(P) < k:
             ahop = math.inf
             for b in beacon - U:
@@ -852,10 +856,10 @@ def make_group(V, E, F, Egroup, frequent_canel, num_member):
         u = frequent_node.pop()
         index = 0
         while index < len(ranked_node):
-            if len(u.rb) < len(ranked_node[index]):
+            if len(u.rb) < len(ranked_node[index].rb):
                 break
             index += 1
-        ranked_node.insert(u, index)
+        ranked_node.insert(index, u)
 
     #ソートした候補の中で先頭num_mamber個までをグループのメンバーにする
     Emember = ranked_node[0:num_member]
@@ -863,6 +867,7 @@ def make_group(V, E, F, Egroup, frequent_canel, num_member):
 
     for e in Egroup:
         if e not in E:
+            E.append(e)
             e[0].cap[e] = e[0].cap[e[::-1]] = \
             e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
             e[0].fee[e] = e[0].fee[e[::-1]] = \
@@ -1158,6 +1163,20 @@ def Simulation4(V, E, F):
 
     
     print("後半開始")
+    #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
+    #ここから計算の手間を比較するためにEgroupを作る場合と作らない場合に分ける
+    #作らない場合：V,E,Fを使う
+    #使う場合：Vg,Eg,Fgを使う)
+    num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
+    frequent_canel = [row[0] for row in num_chanel_used_sorted[0:10]]
+    make_group(V, E, F, Egroup, frequent_canel, 3)
+    RT_remake(V, E, F, Egroup)
+    F1 = {}
+    for k in E:
+        F1[k] = 1
+        F1[k[::-1]] = 1
+    for v in V:
+        check_RT(v, F1)
 
     for t in range(T//2,T):
         for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
@@ -1195,8 +1214,6 @@ def Simulation4(V, E, F):
     print("access %, disaccess %")
     print(find/access, ", ", disfind/disaccess)
 
-
-
 def connect(V, E):
     q = queue.Queue()
     F = [False for n in range(NUM_NODE)]
@@ -1216,7 +1233,7 @@ def connect(V, E):
 if __name__ == "__main__":
     print("make network", end="")
     t1 = time.time()
-    V, E, F = make_Starnetwork()
+    V, E, F = make_network()
     t2 = time.time()
     print(": {}[s]".format(t2-t1))
     for v in V:
@@ -1224,5 +1241,5 @@ if __name__ == "__main__":
         v.Mr = set()
     #plotLN(V, E)
     print("simulation start")
-    Simulation3(V, E, F)
+    Simulation4(V, E, F)
     #plotLN(V, E)
