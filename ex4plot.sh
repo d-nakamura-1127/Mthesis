@@ -1,10 +1,13 @@
+#!/bin/sh
+
 gnuplot -e "
-set ylabel "Accessible node, %";
-set y2label "Num Query average";
-set y2tics;
-set y2range [0:1]
-plot "plot.txt" using 1:2 axis x1y1 with linespoint lc rgb "light-cyan" title "accessible, %", "plot.txt" using 1:3:xtic(1) axis x1y2 with linespoint lc rgb "light-green" title "Query average";
-set xlabel "Time";
+set ylabel 'Num TABLE REQ';
+plot 'plot_NUMTREQ.txt' using 1:2 with linespoint lc rgb 'red' title 'not group', 'plot2_NUMTREQ.txt' using 1:2 with linespoint lc rgb 'blue' title 'group';
+set xlabel 'Time';
+set xrange [30:60];
+set xlabel font 'Arial,20';
+set ylabel font 'Arial,20';
+set key font 'Arial,15';
 replot;
 pause -1
 "
