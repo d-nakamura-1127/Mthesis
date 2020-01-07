@@ -17,7 +17,7 @@ import collections
 
 MAX_CAP = 100
 MIN_CAP = 10
-NUM_NODE = 2000 #ネットワークのノードの数
+NUM_NODE = 10 #ネットワークのノードの数
 PROB_EDGE = 0.3 #ノード間にチャネルが存在する確率
 RNB = 2 #近隣半径
 NBC = 5 #ビーコンの数
@@ -606,6 +606,55 @@ def make_network():
 
     Emiddle = copy.copy(E) #張替え後のエッジを格納する
     #全ての辺について確率PROB_EDGEで張替える。
+    for e in E:
+        if random.random() < PROB_EDGE:
+            #貼り替える場合ランダムに頂点vを1つ選択し、辺(e[0],v)がすでに存在しなければ追加、元の辺を削除
+            v = random.choice(V)
+            if e[0] != v and (e[0], v) not in Emiddle and (v, e[0]) not in Emiddle:
+                Emiddle.remove(e)
+                if e[0].name < v.name:
+                    e = (e[0], v)
+                else:
+                    e = (v, e[0])
+                Emiddle.append(e)
+        #エッジを張り替えるかの処理が終わったら、そのエッジは確定するので隣接とcap,feeを処理する
+        e[0].set_adj_edge(e)
+        e[1].set_adj_edge(e)
+        e[0].cap[e] = e[0].cap[e[::-1]] = \
+        e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+        e[0].fee[e] = e[0].fee[e[::-1]] = \
+        e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+
+    print("|V|={}, |E|={}".format(len(V), len(Emiddle)))
+
+    for v in range(NUM_NODE):
+        for u in V[v].adj:
+            RT_UPD(V[u.name], V[v], V[v].RT, {})
+            if len(V[v].cap) != len(V[v].RT)*2:
+                print("hoge")
+    return V, Emiddle, F
+
+def make_network2():
+    #seed値を固定し、複数回実行しても同じグラフができるようにする
+    knb = 4
+
+    ###この構造体のイニシャライズは最初の1回だけにしないとダメ###
+    V = [Node(n) for n in range(NUM_NODE)]
+
+    #ネットワークが円環状になるようにエッジを貼る
+    E = [(V[i], V[i+1]) for i in range(NUM_NODE-1)]
+    E.append((V[NUM_NODE-1], V[0]))
+    F = {(i,j):math.inf for i in V for j in V}
+
+    #最近傍の数がknb個になるように近くのノードとエッジを貼る
+    for i in range(NUM_NODE):
+        for n in range(2,(knb//2)+1):
+            E.append((V[i-n], V[i]))
+
+    Emiddle = copy.copy(E) #張替え後のエッジを格納する
+    #全ての辺について確率PROB_EDGEで張替える。
+    #ここでseed値を1回だけ初期化する
+    random.seed(10)
     for e in E:
         if random.random() < PROB_EDGE:
             #貼り替える場合ランダムに頂点vを1つ選択し、辺(e[0],v)がすでに存在しなければ追加、元の辺を削除
@@ -1337,13 +1386,13 @@ def connect(V, E):
 if __name__ == "__main__":
     print("make network", end="")
     t1 = time.time()
-    V, E, F = make_network()
+    V, E, F = make_network2()
     t2 = time.time()
     print(": {}[s]".format(t2-t1))
     for v in V:
         v.M = set()
         v.Mr = set()
-    #plotLN(V, E)
+    plotLN(V, E)
     print("simulation start")
-    Simulation4(V, E, F)
+    #Simulation4(V, E, F)
     #plotLN(V, E)
