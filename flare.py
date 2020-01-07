@@ -79,6 +79,7 @@ class Node:
         self.Mr = set() #RTから削除されたチャネルを記録
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
         self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
+        self.num_TABEL_REQ = [0, 0] #selfがRTを要求された回数。0:グループあり 1:グループなし
 
     def print_node(self):
         print("name {}, adj {}, RT {}".format(self.name, self.adj, self.RT))
@@ -510,6 +511,7 @@ def Candicate_rotes(s, r, k, f, Ntab):
             RTco = RTco | c.RT
             fee.update(c.fee)
             cap.update(c.cap)
+            c.num_TABEL_REQ[0] += 1
             U.add(c)
     #発見した候補ルートを記録
     s.candicate[r] = P
@@ -571,6 +573,7 @@ def Candicate_rotes_bar(s, r, k, f, Ntab, ebar):
             RTco = RTco | c.RT
             fee.update(c.fee)
             cap.update(c.cap)
+            c.num_TABEL_REQ[1] += 1
             U.add(c)
     #発見した候補ルートを記録
     #s.candicate[r] = P
@@ -982,6 +985,12 @@ def count_chanel_used(p, num_canel_used):
             num_canel_used[e] = 1
         i += 1            
 
+def num_TABEL_REQ_reset(V):
+    i = 0
+    while i < NUM_NODE:
+        V[i].num_TABEL_REQ = [0, 0]
+        i += 1 
+
 def pathplot(path, rr):
     print("(", end="")
     for i in range(len(path)-1):
@@ -1171,25 +1180,25 @@ def Simulation4(V, E, F):
     #パスの発見確率だけでなく、発見するまでのクエリの回数を比較
     #クエリの回数が少ない=より早く見つかっている
     #ユーザグループの作り方を色々試す
-    T = 60
+    T = 600
     num_sample = 10
     num_r = NUM_NODE//10
     s = random.sample(V, num_sample)
     r_samp = random.sample(V, num_r)
     num_culc = 0
     #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
-    accessible = {t:{(v, u): 0 for v in s for u in r_samp} for t in range(T)}
+    accessible = {t:{(v, u): 0 for v in s for u in r_samp if v != u} for t in range(T)}
     num_query = {t: 0 for t in range(T)} #時刻tでの探索においてクエリを送信した回数の合計
     num_chanel_used = {}
-    print("Accessible, ave_query")
-    print("t    not_group     group  ")
+    print("Accessible, ave_query, TABLE_REQ")
+    print("t          not_group              group  ")
     find = 0
     disfind = 0
     access = 0
     disaccess = 0
     #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
     Egroup = list()
-    for t in range(T//2):
+    for t in range(30):
         for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
             Beacon_Discovery(s[j], 6, F)
             for r in r_samp:
@@ -1204,6 +1213,7 @@ def Simulation4(V, E, F):
                         maxp = max(rr, key=rr.get)
                         s[j].path[r] = maxp
                         accessible[t][(s[j], r)] = 1
+                    num_TABEL_REQ_reset(V)
         ave = sum(accessible[t].values()) / len(accessible[t])
         c = collections.Counter(accessible[t].values())
         access += c[1]
@@ -1234,6 +1244,7 @@ def Simulation4(V, E, F):
     num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
     frequent_canel = [row[0] for row in num_chanel_used_sorted[0:10]]
     Egroup, ebar = make_group(V, E, F, frequent_canel, 3)
+    group_member = Nodes(Egroup)
     RT_remake(V, E, F, Egroup)
     F1 = {}
     for k in E:
@@ -1245,14 +1256,15 @@ def Simulation4(V, E, F):
     #グループ作成後の各記録を保存する変数を作成
     num_queryG = {}
     accessibleG = {}
-    accessibleG[T//2 - 1] = accessible[T//2 -1]
+    accessibleG[30 - 1] = accessible[30 -1]
     accessG = access
     disaccessG = disaccess
     findG = find
     disfindG = disfind
-    for t in range(T//2,T):
+    for t in range(30,T):
         num_queryG[t] = 0
         accessibleG[t] = {}
+        sum_TABEL_REQ = [0, 0]
         for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
             Beacon_Discovery(s[j], 6, F)
             for r in r_samp:
@@ -1271,6 +1283,10 @@ def Simulation4(V, E, F):
                         maxp = max(rr, key=rr.get)
                         s[j].path[r] = maxp
                         accessibleG[t][(s[j], r)] = 1
+        for v in group_member:
+            sum_TABEL_REQ[0] += v.num_TABEL_REQ[0]
+            sum_TABEL_REQ[1] += v.num_TABEL_REQ[1]
+        num_TABEL_REQ_reset(V)
         ave = sum(accessible[t].values()) / len(accessible[t])
         c = collections.Counter(accessible[t].values())
         access += c[1]
@@ -1291,7 +1307,7 @@ def Simulation4(V, E, F):
                     findG += 1
                 elif accessibleG[t][sr] == 0 and accessibleG[t-1][sr] == 1:
                     disfindG += 1
-        print("{} {} {} {} {}".format(t, ave, num_query[t]/num_culc, aveG, num_queryG[t]/num_culc ) )
+        print("{} {} {} {} | {} {} {}".format(t, ave, num_query[t]/num_culc, sum_TABEL_REQ[1], aveG, num_queryG[t]/num_culc, sum_TABEL_REQ[0]))
         RT_remake(V, E, F, Egroup)
         F1 = {}
         for k in E:
