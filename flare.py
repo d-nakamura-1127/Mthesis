@@ -17,7 +17,7 @@ import collections
 
 MAX_CAP = 100
 MIN_CAP = 10
-NUM_NODE = 10 #ネットワークのノードの数
+NUM_NODE = 2000 #ネットワークのノードの数
 PROB_EDGE = 0.3 #ノード間にチャネルが存在する確率
 RNB = 2 #近隣半径
 NBC = 5 #ビーコンの数
@@ -164,6 +164,23 @@ class Node:
         u = list(e)
         u.remove(self)
         self.M = self.M & u[0].RT
+    
+    def Reset(self):
+        #名前とアドレス以外を全て消す
+        self.RT = set() #ルーティングテーブル。セットとして実装 (u, v) u,v in V
+        self.path = dict() #self.path[r]:ノードrへの最短経路
+        self.cap = dict() #辞書型として実装
+        self.adj = list() #距離1の範囲内にある(直接チャネルで繋がっている)ノードのリスト
+        self.bc = set() #ビーコンを格納する
+        self.rb = list() #selfをビーコンとして選択したノードのリスト
+        self.fee = dict()
+        self.nb = list() #このノードの近傍を記録するリスト
+        self.dist = dict() #各ノードへの最短距離を格納する
+        self.M = set() #RTに新しく追加されたチャネルを記録
+        self.Mr = set() #RTから削除されたチャネルを記録
+        self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
+        self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
+        self.num_TABEL_REQ = [0, 0] #selfがRTを要求された回数。0:グループあり 1:グループなし
 
 def plotLN(V, E):
     #作成したネットワークをプロットして確認する用
@@ -591,7 +608,7 @@ def route_ranking(f, p):
             C += p[i].fee[e]
     return 1/C
         
-def make_network():
+def make_network(V):
     knb = 4
     V = [Node(n) for n in range(NUM_NODE)]
     #ネットワークが円環状になるようにエッジを貼る
@@ -634,12 +651,12 @@ def make_network():
                 print("hoge")
     return V, Emiddle, F
 
-def make_network2():
+def make_network2(V):
     #seed値を固定し、複数回実行しても同じグラフができるようにする
     knb = 4
 
     ###この構造体のイニシャライズは最初の1回だけにしないとダメ###
-    V = [Node(n) for n in range(NUM_NODE)]
+    #V = [Node(n) for n in range(NUM_NODE)]
 
     #ネットワークが円環状になるようにエッジを貼る
     E = [(V[i], V[i+1]) for i in range(NUM_NODE-1)]
@@ -958,6 +975,89 @@ def RT_remake(V, E, F, Egroup):
     for v in range(NUM_NODE):
         for u in V[v].adj:
             RT_UPD(V[u.name], V[v], V[v].RT, {})
+
+def Remake_for_logs(V, E, F, Egroup, ebar, enew):
+    #LNを更新する。V：更新前のLNの頂点集合 E：辺集合 F：重みの集合
+    Eadd = 10
+    Vadd = 0
+    Edel = 10 #追加、削除する辺、頂点の数
+    Vdel = 0
+    Vgroup = Nodes(Egroup)
+
+    #辺の集合Eの中で消していいものだけを残した集合Efreeを作る、Egroupの辺は消してはいけない
+    Efree = set(E) - set(Egroup)
+    Vfree = set(V) - set(Vgroup)
+    vbar = []
+    if len(ebar) == 0:
+        ebar = random.sample(Efree, Edel)
+        vbar = random.sample(Vfree, Vdel)
+    if len(enew) == 0:
+        while len(enew) < Eadd:
+            e = tuple(random.sample(V, 2))
+            if e not in E and e[::-1] not in E and e not in enew and e[::-1] not in enew:
+                enew.append(e)
+
+    for v in V:
+        v.RT = set()
+
+    for j in range(len(ebar)):
+        e = ebar[j]
+        E.remove(e)
+        e[0].adj.remove(e[1])
+        e[1].adj.remove(e[0])
+
+    #ノードをノンアクティブにする
+    for v in vbar:
+        for u in v.adj:
+            v.active = 0
+            e = (v, u)
+            E.remove(e)
+            ebar.append(e)
+            u.adj.remove(v)
+
+    #辺、ノードを消したら、RTに辺を追加する
+    for v in V:
+        for u in v.adj:
+            if v.name < u.name:
+                e = (v,u)
+            else:
+                e = (u,v)
+            v.RT.add(e)
+
+    random.seed(100)
+    #新しいチャネルを追加    
+    for e in enew:
+        E.append(e)
+        e[0].cap[e] = e[0].cap[e[::-1]] = \
+        e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+        e[0].fee[e] = e[0].fee[e[::-1]] = \
+        e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+        e[0].set_adj_edge(e)
+        e[1].set_adj_edge(e)
+
+    #新しいノードを追加
+    add_num = 0
+    lenV = len(V)
+    while add_num < Vadd:
+        adj = random.sample(V, 4)
+        v = Node(lenV + add_num + 1)
+        V.append(v)
+        for u in adj:
+            e = (u, v)
+            E.append(e)
+            u.set_adj_edge(e)
+            v.set_adj_edge(e)
+            u.cap[e] = u.cap[e[::-1]] = \
+            v.cap[e] = v.cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+            u.fee[e] = u.fee[e[::-1]] = \
+            v.fee[e] = v.fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+        add_num += 1
+
+    for v in range(NUM_NODE):
+        for u in V[v].adj:
+            RT_UPD(V[u.name], V[v], V[v].RT, {})
+
+    return ebar, enew
 
 def make_group(V, E, F, frequent_canel, num_member):
     #頻出チャネルの情報からユーザーグループを作成する。3人~10人くらい
@@ -1367,6 +1467,180 @@ def Simulation4(V, E, F):
     print("access %, disaccess %, accessG %, disaccessG %")
     print(find/access, ", ", disfind/disaccess, "," , findG/accessG,",", disfindG/disaccessG)
 
+def Simulation4B():
+    #実験4B　グループの人数を変えながら実験する
+    #パスの発見確率だけでなく、発見するまでのクエリの回数を比較
+    #クエリの回数が少ない=より早く見つかっている
+    #ユーザグループの作り方を色々試す
+    T = 60
+    num_sample = 10
+    num_r = NUM_NODE//10
+    NUM_Member = [10, 50, 100, 500]
+    #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
+    ebar = {t: [] for t in range(T)}
+    enew = {t: [] for t in range(T)}
+    V = [Node(n) for n in range(NUM_NODE)]
+    while NUM_Member:
+        #ここでグラフを作る。
+        #メンバーの人数が変わるたびにグラフを初期化し、変更履歴に基づき同じように更新することで同一のグラフで実験する
+        print("make network", end="")
+        V, E, F = make_network2(V)
+        #plotLN(V, E)
+        for v in V:
+            v.M = set()
+            v.Mr = set()
+
+        s = random.sample(V, num_sample)
+        r_samp = random.sample(V, num_r)
+        num_culc = 0
+        #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
+        accessible = {t:{(v, u): 0 for v in s for u in r_samp if v != u} for t in range(T)}
+        num_query = {t: 0 for t in range(T)} #時刻tでの探索においてクエリを送信した回数の合計
+        num_chanel_used = {}
+        print("Accessible, ave_query, TABLE_REQ")
+        print("t          not_group              group  ")
+        find = 0
+        disfind = 0
+        access = 0
+        disaccess = 0
+        #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
+        Egroup = list()
+        for t in range(30):
+            for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
+                Beacon_Discovery(s[j], 6, F)
+                for r in r_samp:
+                    if s[j] != r:
+                        ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
+                        P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
+                        num_query[t] += q
+                        num_culc += 1
+                        if len(P) != 0:
+                            for pi in P:
+                                count_chanel_used(pi, num_chanel_used)
+                            maxp = max(rr, key=rr.get)
+                            s[j].path[r] = maxp
+                            accessible[t][(s[j], r)] = 1
+                        num_TABEL_REQ_reset(V)
+            ave = sum(accessible[t].values()) / len(accessible[t])
+            c = collections.Counter(accessible[t].values())
+            access += c[1]
+            disaccess += c[0]
+            if t > 0:
+                for sr in accessible[t].keys():
+                    if accessible[t][sr] == 1 and accessible[t-1][sr] == 0:
+                        find += 1
+                    elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
+                        disfind += 1
+            print("{} {} {}".format(t, ave, num_query[t]/num_culc ) )
+            if t != 29:
+                ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
+                F1 = {}
+                for k in E:
+                    F1[k] = 1
+                    F1[k[::-1]] = 1
+                for v in V:
+                    check_RT(v, F1)
+        if disaccess == 0:
+            disaccess = 1
+        print("access %, disaccess %")
+        print(find/access, ", ", disfind/disaccess)
+
+
+        print("後半開始")
+        #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
+        #ここから計算の手間を比較するためにEgroupを作る場合と作らない場合に分ける
+        #作らない場合：V,E,Fを使う
+        #使う場合：Vg,Eg,Fgを使う)
+        Member = NUM_Member.pop(0)
+        num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
+        frequent_canel = [row[0] for row in num_chanel_used_sorted]
+        Egroup, Gedge = make_group(V, E, F, frequent_canel, Member)
+        group_member = Nodes(Egroup)
+        ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
+        F1 = {}
+        for k in E:
+            F1[k] = 1
+            F1[k[::-1]] = 1
+        for v in V:
+            check_RT(v, F1)
+
+        #グループ作成後の各記録を保存する変数を作成
+        num_queryG = {}
+        accessibleG = {}
+        accessibleG[30 - 1] = accessible[30 -1]
+        accessG = access
+        disaccessG = disaccess
+        findG = find
+        disfindG = disfind
+        for t in range(30,T):
+            num_queryG[t] = 0
+            accessibleG[t] = {}
+            sum_TABEL_REQ = [0, 0]
+            for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
+                Beacon_Discovery(s[j], 6, F)
+                for r in r_samp:
+                    if s[j] != r:
+                        ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
+                        P, rr, q = Candicate_rotes_bar(s[j], r, 5, 10, 10, Gedge)
+                        num_query[t] += q
+                        num_culc += 1
+                        if len(P) != 0:
+                            accessible[t][(s[j], r)] = 1
+
+                        accessibleG[t][(s[j], r)] = 0
+                        P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
+                        num_queryG[t] += q
+                        if len(P) != 0:
+                            maxp = max(rr, key=rr.get)
+                            s[j].path[r] = maxp
+                            accessibleG[t][(s[j], r)] = 1
+            for v in group_member:
+                sum_TABEL_REQ[0] += v.num_TABEL_REQ[0]
+                sum_TABEL_REQ[1] += v.num_TABEL_REQ[1]
+            num_TABEL_REQ_reset(V)
+            ave = sum(accessible[t].values()) / len(accessible[t])
+            c = collections.Counter(accessible[t].values())
+            access += c[1]
+            disaccess += c[0]
+            if t > 0:
+                for sr in accessible[t].keys():
+                    if accessible[t][sr] == 1 and accessible[t-1][sr] == 0:
+                        find += 1
+                    elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
+                        disfind += 1
+            aveG = sum(accessibleG[t].values()) / len(accessibleG[t])
+            c = collections.Counter(accessibleG[t].values())
+            accessG += c[1]
+            disaccessG += c[0]
+            if t > 0:
+                for sr in accessibleG[t].keys():
+                    if accessibleG[t][sr] == 1 and accessibleG[t-1][sr] == 0:
+                        findG += 1
+                    elif accessibleG[t][sr] == 0 and accessibleG[t-1][sr] == 1:
+                        disfindG += 1
+            print("{} {} {} {} | {} {} {}".format(t, ave, num_query[t]/num_culc,\
+                sum_TABEL_REQ[1], aveG, num_queryG[t]/num_culc, sum_TABEL_REQ[0]))
+            #変更した履歴をebar,enewに保存する。最初の1回はebar,enew共に空なので新しく作る
+            #2回目以降は1回目の記録を使って更新する。返り値は引数として渡したものがそのまま帰ってくるはず
+            ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
+            F1 = {}
+            for k in E:
+                F1[k] = 1
+                F1[k[::-1]] = 1
+            for v in V:
+                check_RT(v, F1)
+        if disaccess == 0:
+            disaccess = 1
+        if disaccessG == 0:
+            disaccessG = 1
+        print("access %, disaccess %, accessG %, disaccessG %")
+        print(find/access, ", ", disfind/disaccess, "," , findG/accessG,",", disfindG/disaccessG)
+        #次の反復の準備としてVのアドレス以外の情報を削除する
+        for v in V:
+            v.Reset()
+
+
+
 def connect(V, E):
     q = queue.Queue()
     F = [False for n in range(NUM_NODE)]
@@ -1384,15 +1658,16 @@ def connect(V, E):
         print("LN is disconnected")
 
 if __name__ == "__main__":
-    print("make network", end="")
-    t1 = time.time()
-    V, E, F = make_network2()
-    t2 = time.time()
-    print(": {}[s]".format(t2-t1))
-    for v in V:
-        v.M = set()
-        v.Mr = set()
-    plotLN(V, E)
+    #print("make network", end="")
+    #t1 = time.time()
+    #V = [Node(n) for n in range(NUM_NODE)]
+    #V, E, F = make_network2(V)
+    #t2 = time.time()
+    #print(": {}[s]".format(t2-t1))
+    #for v in V:
+    #    v.M = set()
+    #    v.Mr = set()
+    #plotLN(V, E)
     print("simulation start")
-    #Simulation4(V, E, F)
+    Simulation4B()
     #plotLN(V, E)
