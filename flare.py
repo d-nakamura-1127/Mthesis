@@ -1002,9 +1002,10 @@ def Remake_for_logs(V, E, F, Egroup, ebar, enew):
 
     for j in range(len(ebar)):
         e = ebar[j]
-        E.remove(e)
-        e[0].adj.remove(e[1])
-        e[1].adj.remove(e[0])
+        if e not in ebar:
+            E.remove(e)
+            e[0].adj.remove(e[1])
+            e[1].adj.remove(e[0])
 
     #ノードをノンアクティブにする
     for v in vbar:
@@ -1475,15 +1476,19 @@ def Simulation4B():
     T = 60
     num_sample = 10
     num_r = NUM_NODE//10
-    NUM_Member = [10, 50, 100, 500]
+    NUM_Member = [5,10,15,20,25,30,35,45,50]
     #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
     ebar = {t: [] for t in range(T)}
     enew = {t: [] for t in range(T)}
     V = [Node(n) for n in range(NUM_NODE)]
     while NUM_Member:
+        strings = []
         #ここでグラフを作る。
         #メンバーの人数が変わるたびにグラフを初期化し、変更履歴に基づき同じように更新することで同一のグラフで実験する
-        print("make network", end="")
+        strings.append("|M| = {}".format(NUM_Member[0]))
+        print(strings[-1])
+        strings.append("make network |V|={} |E|={}".format(NUM_NODE, NUM_NODE*2))
+        print(strings[-1])
         V, E, F = make_network2(V)
         #plotLN(V, E)
         for v in V:
@@ -1497,8 +1502,10 @@ def Simulation4B():
         accessible = {t:{(v, u): 0 for v in s for u in r_samp if v != u} for t in range(T)}
         num_query = {t: 0 for t in range(T)} #時刻tでの探索においてクエリを送信した回数の合計
         num_chanel_used = {}
-        print("Accessible, ave_query, TABLE_REQ")
-        print("t          not_group              group  ")
+        strings.append("Accessible, ave_query, ave_time, TABLE_REQ")
+        print(strings[-1])
+        strings.append("t          not_group              group  ")
+        print(strings[-1])
         find = 0
         disfind = 0
         access = 0
@@ -1531,7 +1538,8 @@ def Simulation4B():
                         find += 1
                     elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
                         disfind += 1
-            print("{} {} {}".format(t, ave, num_query[t]/num_culc ) )
+            strings.append("{} {:.10f} {:.10f}".format(t, ave, num_query[t]/num_culc ))
+            print(strings[-1])
             if t != 29:
                 ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
                 F1 = {}
@@ -1542,11 +1550,14 @@ def Simulation4B():
                     check_RT(v, F1)
         if disaccess == 0:
             disaccess = 1
-        print("access %, disaccess %")
-        print(find/access, ", ", disfind/disaccess)
+        strings.append("access %, disaccess %")
+        print(strings[-1])
+        strings.append("{}, {}".format(find/access, disfind/disaccess))
+        print(strings[-1])
 
 
-        print("後半開始")
+        strings.append("後半開始")
+        print(strings[-1])
         #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
         #ここから計算の手間を比較するためにEgroupを作る場合と作らない場合に分ける
         #作らない場合：V,E,Fを使う
@@ -1573,6 +1584,8 @@ def Simulation4B():
         findG = find
         disfindG = disfind
         for t in range(30,T):
+            sumtime_t = 0
+            sumtimeG_t = 0
             num_queryG[t] = 0
             accessibleG[t] = {}
             sum_TABEL_REQ = [0, 0]
@@ -1581,14 +1594,20 @@ def Simulation4B():
                 for r in r_samp:
                     if s[j] != r:
                         ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
+                        t1 = time.time()
                         P, rr, q = Candicate_rotes_bar(s[j], r, 5, 10, 10, Gedge)
+                        t2 = time.time()
+                        sumtime_t += t2-t1
                         num_query[t] += q
                         num_culc += 1
                         if len(P) != 0:
                             accessible[t][(s[j], r)] = 1
 
                         accessibleG[t][(s[j], r)] = 0
+                        t1 = time.time()
                         P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
+                        t2 = time.time()
+                        sumtimeG_t += t2-t1
                         num_queryG[t] += q
                         if len(P) != 0:
                             maxp = max(rr, key=rr.get)
@@ -1618,8 +1637,9 @@ def Simulation4B():
                         findG += 1
                     elif accessibleG[t][sr] == 0 and accessibleG[t-1][sr] == 1:
                         disfindG += 1
-            print("{} {} {} {} | {} {} {}".format(t, ave, num_query[t]/num_culc,\
-                sum_TABEL_REQ[1], aveG, num_queryG[t]/num_culc, sum_TABEL_REQ[0]))
+            strings.append('{} {:.16f} {:.16f} {:.16f} {:.8f}| {:.16f} {:.16f} {:.16f} {:.8f}'.format(t, ave, sumtime_t/num_culc, num_query[t]/num_culc,\
+                sum_TABEL_REQ[1]/Member, aveG, sumtimeG_t/num_culc, num_queryG[t]/num_culc, sum_TABEL_REQ[0]/Member))
+            print(strings[-1])
             #変更した履歴をebar,enewに保存する。最初の1回はebar,enew共に空なので新しく作る
             #2回目以降は1回目の記録を使って更新する。返り値は引数として渡したものがそのまま帰ってくるはず
             ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
@@ -1633,11 +1653,15 @@ def Simulation4B():
             disaccess = 1
         if disaccessG == 0:
             disaccessG = 1
-        print("access %, disaccess %, accessG %, disaccessG %")
-        print(find/access, ", ", disfind/disaccess, "," , findG/accessG,",", disfindG/disaccessG)
+        strings.append("access %, disaccess %, accessG %, disaccessG %")
+        print(strings[-1])
+        strings.append("{}, {}, {}, {}".format(find/access, disfind/disaccess, findG/accessG, disfindG/disaccessG))
+        print(strings[-1])
         #次の反復の準備としてVのアドレス以外の情報を削除する
         for v in V:
             v.Reset()
+        with open("jikkenNumMem2.txt", "a", encoding="utf-8") as f:
+            f.write("\n".join(strings))
 
 
 
