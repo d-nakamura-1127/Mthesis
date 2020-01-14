@@ -79,7 +79,7 @@ class Node:
         self.Mr = set() #RTから削除されたチャネルを記録
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
         self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
-        self.num_TABEL_REQ = [0, 0] #selfがRTを要求された回数。0:グループあり 1:グループなし
+        self.num_TABEL_REQ = dict() #selfがRTを要求された回数。0:グループあり 1:グループなし
 
     def print_node(self):
         print("name {}, adj {}, RT {}".format(self.name, self.adj, self.RT))
@@ -1476,7 +1476,7 @@ def Simulation4B():
     T = 60
     num_sample = 10
     num_r = NUM_NODE//10
-    NUM_Member = [5,10,15,20,25,30,35,45,50]
+    NUM_Member = [0,5,10,15,20,25,30,35,40,45,50]
     #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
     ebar = {t: [] for t in range(T)}
     enew = {t: [] for t in range(T)}
@@ -1502,9 +1502,9 @@ def Simulation4B():
         accessible = {t:{(v, u): 0 for v in s for u in r_samp if v != u} for t in range(T)}
         num_query = {t: 0 for t in range(T)} #時刻tでの探索においてクエリを送信した回数の合計
         num_chanel_used = {}
-        strings.append("Accessible, ave_query, ave_time, TABLE_REQ")
+        strings.append("                not_group                          group  ")
         print(strings[-1])
-        strings.append("t          not_group              group  ")
+        strings.append("t, Accessible, ave_query, ave_time, AccessibleG, ave_queryG, ave_timeG | TABLE_REQ, TABLE_REQ_G")
         print(strings[-1])
         find = 0
         disfind = 0
@@ -1513,12 +1513,16 @@ def Simulation4B():
         #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
         Egroup = list()
         for t in range(30):
+            sumtime_t = 0
             for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
                 Beacon_Discovery(s[j], 6, F)
                 for r in r_samp:
                     if s[j] != r:
                         ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
+                        t1 = time.time()
                         P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
+                        t2 = time.time()
+                        sumtime_t += t2-t1
                         num_query[t] += q
                         num_culc += 1
                         if len(P) != 0:
@@ -1538,7 +1542,7 @@ def Simulation4B():
                         find += 1
                     elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
                         disfind += 1
-            strings.append("{} {:.10f} {:.10f}".format(t, ave, num_query[t]/num_culc ))
+            strings.append("{:0=2} {:.10f} {:.10f} {:.10f}".format(t, ave, num_query[t]/num_culc, sumtime_t/num_culc ))
             print(strings[-1])
             if t != 29:
                 ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
@@ -1627,18 +1631,8 @@ def Simulation4B():
                         find += 1
                     elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
                         disfind += 1
-            aveG = sum(accessibleG[t].values()) / len(accessibleG[t])
-            c = collections.Counter(accessibleG[t].values())
-            accessG += c[1]
-            disaccessG += c[0]
-            if t > 0:
-                for sr in accessibleG[t].keys():
-                    if accessibleG[t][sr] == 1 and accessibleG[t-1][sr] == 0:
-                        findG += 1
-                    elif accessibleG[t][sr] == 0 and accessibleG[t-1][sr] == 1:
-                        disfindG += 1
-            strings.append('{} {:.16f} {:.16f} {:.16f} {:.8f}| {:.16f} {:.16f} {:.16f} {:.8f}'.format(t, ave, sumtime_t/num_culc, num_query[t]/num_culc,\
-                sum_TABEL_REQ[1]/Member, aveG, sumtimeG_t/num_culc, num_queryG[t]/num_culc, sum_TABEL_REQ[0]/Member))
+            strings.append('{:0=2} {:.10f} {:.10f} {:.10f} | {:.8f} {:.8f}'.format(t, ave, num_query[t]/num_culc,\
+                sumtime_t/num_culc, sum_TABEL_REQ[1]/Member, sum_TABEL_REQ[0]/Member))
             print(strings[-1])
             #変更した履歴をebar,enewに保存する。最初の1回はebar,enew共に空なので新しく作る
             #2回目以降は1回目の記録を使って更新する。返り値は引数として渡したものがそのまま帰ってくるはず
@@ -1660,8 +1654,9 @@ def Simulation4B():
         #次の反復の準備としてVのアドレス以外の情報を削除する
         for v in V:
             v.Reset()
-        with open("jikkenNumMem2.txt", "a", encoding="utf-8") as f:
+        with open("jikkenNumMem3.txt", "a", encoding="utf-8") as f:
             f.write("\n".join(strings))
+            f.write("\n")
 
 
 
