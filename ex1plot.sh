@@ -1,10 +1,9 @@
 gnuplot -e "
-set ylabel "Accessible node, %";
-set y2label "Num Query average";
-set y2tics;
-set y2range [0:1]
-plot "plot.txt" using 1:2 axis x1y1 with linespoint lc rgb "light-cyan" title "accessible, %", "plot.txt" using 1:3:xtic(1) axis x1y2 with linespoint lc rgb "light-green" title "Query average";
-set xlabel "Time";
+set style fill solid border lc rgb 'black';
+set boxwidth 1;
+set ylabel 'Accessible node, %;
+plot 'plot.txt' using ($0*4+0):2 with boxes lw 2 lc rgb 'light-cyan' title 'Nbc=0', 'plot.txt' using ($0*4+1):3 with boxes lw 2 lc rgb 'light-green' title 'Nbc=1', 'plot.txt' using ($0*4+2):4 with boxes lw 2 lc rgb 'light-red' title 'Nbc=10';
+set xlabel 'Time';
 replot;
 pause -1
 "
