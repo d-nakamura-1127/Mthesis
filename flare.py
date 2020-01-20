@@ -79,7 +79,7 @@ class Node:
         self.Mr = set() #RTから削除されたチャネルを記録
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
         self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
-        self.num_TABLE_REQ = 0 #selfがRTを要求された回数。
+        self.num_TABLE_REQ = [0, 0] #selfがRTを要求された回数。[0]:従来のflareでの回数 [1]:拡張後の回数
 
     def print_node(self):
         print("name {}, adj {}, RT {}".format(self.name, self.adj, self.RT))
@@ -180,7 +180,7 @@ class Node:
         self.Mr = set() #RTから削除されたチャネルを記録
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
         self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
-        self.num_TABLE_REQ = 0 #selfがRTを要求された回数。0:グループあり 1:グループなし
+        self.num_TABLE_REQ = [0, 0] #selfがRTを要求された回数。0:グループあり 1:グループなし
 
 def plotLN(V, E):
     #作成したネットワークをプロットして確認する用
@@ -527,17 +527,19 @@ def Candicate_rotes(s, r, k, f, Ntab):
             RTco = RTco | c.RT
             fee.update(c.fee)
             cap.update(c.cap)
+            c.num_TABLE_REQ[0] += 1
             U.add(c)
     #発見した候補ルートを記録
     s.candicate[r] = P
     return P, rr, len(U)
 
-def Candicate_rotes_G(s, r, k, f, Ntab):
+def Candicate_rotes_G(s, r, k, f, Ntab, member):
     #送信者sから受信者rへの送金ルートをk本発見する
     #探索の際に各ノードが何回RTを要求されたのかを記録する
     #Ntab：ルーティングテーブルを要求するノードの最大数。Ntab個以上のノードにルーティングテーブルを要求しない
     #f：送金額。評価値の計算に使うかも
     #発見したパスの集合、評価値、クエリを送信した回数を返す
+    #member:グループのメンバー。ビーコンの決定で使ってみる
     RTco = s.RT
     P = set() #候補ルートを格納するリスト。重複を起こさないためsetにしている
     U = set() #ルーティングテーブルを取得した受信者に近いノードのリスト
@@ -579,15 +581,26 @@ def Candicate_rotes_G(s, r, k, f, Ntab):
             break
         if len(P) < k:
             ahop = math.inf
-            for b in beacon - U:
-                each_hop = hop_address(r, b)
-                if ahop > each_hop:
-                    ahop = each_hop
-                    c = b
+            #ビーコン候補とメンバーの積集合から探索を始める。グループのメンバーからとりあえず３ノードほど探索する。
+            #それ以降は従来通りの探索。これはグループのメンバーだけで見つからなかった場合の対策
+            if len((beacon & member) - U) != 0 and len(U) <= 4:
+                for b in (beacon & member) - U:
+                    each_hop = hop_address(r, b)
+                    if ahop > each_hop:
+                        ahop = each_hop
+                        c = b
+            else:
+                for b in beacon - U:
+                    each_hop = hop_address(r, b)
+                    if ahop > each_hop:
+                        ahop = each_hop
+                        c = b
+            if len(U) == 0:
+                c = r
             RTco = RTco | c.RT
             fee.update(c.fee)
             cap.update(c.cap)
-            c.num_TABLE_REQ += 1
+            c.num_TABLE_REQ[1] += 1
             U.add(c)
     #発見した候補ルートを記録
     #s.candicate[r] = P
@@ -1135,7 +1148,7 @@ def count_chanel_used(p, num_canel_used):
 def num_TABLE_REQ_reset(V):
     i = 0
     while i < NUM_NODE:
-        V[i].num_TABLE_REQ = 0
+        V[i].num_TABLE_REQ = [0, 0]
         i += 1 
 
 def pathplot(path, rr):
@@ -1345,7 +1358,8 @@ def Simulation4(V, E, F):
     disaccess = 0
     #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
     Egroup = list()
-    for t in range(30):
+    for t in range(T):
+        sum_TABEL_REQ = 0
         for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
             Beacon_Discovery(s[j], 6, F)
             for r in r_samp:
@@ -1371,7 +1385,19 @@ def Simulation4(V, E, F):
                     find += 1
                 elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
                     disfind += 1
-        print("{} {} {}".format(t, ave, num_query[t]/num_culc ) )
+        print('{:0=2} {:.10f} {:.10f}'.format(t, ave, num_query[t]/num_culc))
+        if t == 29:
+            num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
+            frequent_canel = [row[0] for row in num_chanel_used_sorted[0:10]]
+            Egroup, ebar = make_group(V, E, F, frequent_canel, 3)
+            group_member = Nodes(Egroup)
+            RT_remake(V, E, F, Egroup)
+            F1 = {}
+            for k in E:
+                F1[k] = 1
+                F1[k[::-1]] = 1
+            for v in V:
+                check_RT(v, F1)
         RT_remake(V, E, F, Egroup)
         F1 = {}
         for k in E:
@@ -1381,89 +1407,6 @@ def Simulation4(V, E, F):
             check_RT(v, F1)
     print("access %, disaccess %")
     print(find/access, ", ", disfind/disaccess)
-
-    
-    print("後半開始")
-    #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
-    #ここから計算の手間を比較するためにEgroupを作る場合と作らない場合に分ける
-    #作らない場合：V,E,Fを使う
-    #使う場合：Vg,Eg,Fgを使う)
-    num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
-    frequent_canel = [row[0] for row in num_chanel_used_sorted[0:10]]
-    Egroup, ebar = make_group(V, E, F, frequent_canel, 3)
-    group_member = Nodes(Egroup)
-    RT_remake(V, E, F, Egroup)
-    F1 = {}
-    for k in E:
-        F1[k] = 1
-        F1[k[::-1]] = 1
-    for v in V:
-        check_RT(v, F1)
-
-    #グループ作成後の各記録を保存する変数を作成
-    num_queryG = {}
-    accessibleG = {}
-    accessibleG[30 - 1] = accessible[30 -1]
-    accessG = access
-    disaccessG = disaccess
-    findG = find
-    disfindG = disfind
-    for t in range(30,T):
-        num_queryG[t] = 0
-        accessibleG[t] = {}
-        sum_TABEL_REQ = [0, 0]
-        for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
-            Beacon_Discovery(s[j], 6, F)
-            for r in r_samp:
-                if s[j] != r:
-                    ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
-                    P, rr, q = Candicate_rotes_G(s[j], r, 5, 10, 10)
-                    num_query[t] += q
-                    num_culc += 1
-                    if len(P) != 0:
-                        accessible[t][(s[j], r)] = 1
-                    
-                    accessibleG[t][(s[j], r)] = 0
-                    P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
-                    num_queryG[t] += q
-                    if len(P) != 0:
-                        maxp = max(rr, key=rr.get)
-                        s[j].path[r] = maxp
-                        accessibleG[t][(s[j], r)] = 1
-        for v in group_member:
-            sum_TABEL_REQ[0] += v.num_TABLE_REQ[0]
-            sum_TABEL_REQ[1] += v.num_TABLE_REQ[1]
-        num_TABLE_REQ_reset(V)
-        ave = sum(accessible[t].values()) / len(accessible[t])
-        c = collections.Counter(accessible[t].values())
-        access += c[1]
-        disaccess += c[0]
-        if t > 0:
-            for sr in accessible[t].keys():
-                if accessible[t][sr] == 1 and accessible[t-1][sr] == 0:
-                    find += 1
-                elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
-                    disfind += 1
-        aveG = sum(accessibleG[t].values()) / len(accessibleG[t])
-        c = collections.Counter(accessibleG[t].values())
-        accessG += c[1]
-        disaccessG += c[0]
-        if t > 0:
-            for sr in accessibleG[t].keys():
-                if accessibleG[t][sr] == 1 and accessibleG[t-1][sr] == 0:
-                    findG += 1
-                elif accessibleG[t][sr] == 0 and accessibleG[t-1][sr] == 1:
-                    disfindG += 1
-        print("{} {} {} {} | {} {} {}".format(t, ave, num_query[t]/num_culc, sum_TABEL_REQ[1], aveG, num_queryG[t]/num_culc, sum_TABEL_REQ[0]))
-        RT_remake(V, E, F, Egroup)
-        F1 = {}
-        for k in E:
-            F1[k] = 1
-            F1[k[::-1]] = 1
-        for v in V:
-            check_RT(v, F1)
-    print("access %, disaccess %, accessG %, disaccessG %")
-    print(find/access, ", ", disfind/disaccess, "," , findG/accessG,",", disfindG/disaccessG)
 
 def Simulation4B():
     #実験4B　グループの人数を変えながら実験する
@@ -1480,7 +1423,7 @@ def Simulation4B():
     V = [Node(n) for n in range(NUM_NODE)]
     while NUM_Member:
         strings = []
-        group_member = []
+        group_member = set()
         #ここでグラフを作る。
         #メンバーの人数が変わるたびにグラフを初期化し、変更履歴に基づき同じように更新することで同一のグラフで実験する
         strings.append("|M| = {}".format(NUM_Member[0]))
@@ -1512,6 +1455,7 @@ def Simulation4B():
         Egroup = list()
         Member = NUM_Member.pop(0)
         for t in range(T):
+            num_culc = 0
             sumtime_t = 0
             sum_TABEL_REQ = 0
             for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
@@ -1520,7 +1464,7 @@ def Simulation4B():
                     if s[j] != r:
                         ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
                         t1 = time.time()
-                        P, rr, q = Candicate_rotes_G(s[j], r, 5, 10, 10)
+                        P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
                         t2 = time.time()
                         sumtime_t += t2-t1
                         num_query[t] += q
@@ -1532,7 +1476,7 @@ def Simulation4B():
                             s[j].path[r] = maxp
                             accessible[t][(s[j], r)] = 1
             for v in group_member:
-                sum_TABEL_REQ += v.num_TABLE_REQ
+                sum_TABEL_REQ += v.num_TABLE_REQ[0]
             num_TABLE_REQ_reset(V)
             if Member == 0:
                 ave_TABLE_REQ = 0
@@ -1558,7 +1502,7 @@ def Simulation4B():
                 num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
                 frequent_canel = [row[0] for row in num_chanel_used_sorted]
                 Egroup, Gedge = make_group(V, E, F, frequent_canel, Member)
-                group_member = Nodes(Egroup)
+                group_member = set(Nodes(Egroup))
             
             ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
             F1 = {}
@@ -1581,7 +1525,115 @@ def Simulation4B():
             f.write("\n".join(strings))
             f.write("\n")
 
+def Simulation5():
+    #実験5　グループメンバーがビーコンになり易いように拡張し、従来のflareと比較
+    #パスの発見確率だけでなく、発見するまでのクエリの回数を比較
+    #クエリの回数が少ない=より早く見つかっている
+    #ユーザグループの作り方を色々試す
+    T = 60
+    num_sample = 10
+    num_r = NUM_NODE//10
+    NUM_Member = [0,5,10,15,20,25,30,35,40]
+    #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
+    ebar = {t: [] for t in range(T)}
+    enew = {t: [] for t in range(T)}
+    V = [Node(n) for n in range(NUM_NODE)]
+    while NUM_Member:
+        strings = []
+        group_member = set()
+        #ここでグラフを作る。
+        #メンバーの人数が変わるたびにグラフを初期化し、変更履歴に基づき同じように更新することで同一のグラフで実験する
+        strings.append("|M| = {}".format(NUM_Member[0]))
+        print(strings[-1])
+        strings.append("make network |V|={} |E|={}".format(NUM_NODE, NUM_NODE*2))
+        print(strings[-1])
+        V, E, F = make_network2(V)
+        #plotLN(V, E)
+        for v in V:
+            v.M = set()
+            v.Mr = set()
 
+        s = random.sample(V, num_sample)
+        r_samp = random.sample(V, num_r)
+        num_culc = 0
+        #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
+        accessible = {t:{(v, u): 0 for v in s for u in r_samp if v != u} for t in range(T)}
+        num_query = {t: 0 for t in range(T)} #時刻tでの探索においてクエリを送信した回数の合計
+        accessibleG = {t:{(v, u): 0 for v in s for u in r_samp if v != u} for t in range(T)}
+        num_queryG = {t: 0 for t in range(T)}
+        num_chanel_used = {}
+        strings.append("                flare                          flare.re  ")
+        print(strings[-1])
+        strings.append("t, Accessible, ave_query, ave_time, TABLE_REQ")
+        print(strings[-1])
+        #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
+        Egroup = list()
+        Member = NUM_Member.pop(0)
+        for t in range(T):
+            num_culc = 0
+            sumtime_t = [0, 0]
+            sum_TABEL_REQ = [0, 0]
+            ave_TABLE_REQ = [0, 0]
+            for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
+                Beacon_Discovery(s[j], 6, F)
+                for r in r_samp:
+                    if s[j] != r:
+                        ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
+                        t1 = time.time()
+                        P, rr, q = Candicate_rotes_G(s[j], r, 5, 10, 10, group_member)
+                        t2 = time.time()
+                        sumtime_t[1] += t2-t1
+                        num_queryG[t] += q
+                        if len(P) != 0:
+                            accessibleG[t][(s[j], r)] = 1
+
+                        t1 = time.time()
+                        P, rr, q = Candicate_rotes(s[j], r, 5, 10, 10)
+                        t2 = time.time()
+                        sumtime_t[0] += t2-t1
+                        num_query[t] += q
+                        num_culc += 1
+                        if len(P) != 0:
+                            for pi in P:
+                                count_chanel_used(pi, num_chanel_used)
+                            maxp = max(rr, key=rr.get)
+                            s[j].path[r] = maxp
+                            accessible[t][(s[j], r)] = 1
+            for v in group_member:
+                sum_TABEL_REQ[0] += v.num_TABLE_REQ[0]
+                sum_TABEL_REQ[1] += v.num_TABLE_REQ[1]
+            num_TABLE_REQ_reset(V)
+            if Member != 0:
+                ave_TABLE_REQ[0] = sum_TABEL_REQ[0]/Member
+                ave_TABLE_REQ[1] = sum_TABEL_REQ[1]/Member
+            ave = sum(accessible[t].values()) / len(accessible[t])
+            aveG = sum(accessibleG[t].values()) / len(accessibleG[t])
+            strings.append('{:0=2} {:.10f} {:.10f} {:.10f} {:.8f} {:.10f} {:.10f} {:.10f} {:.8f}'.format(t, ave, num_query[t]/num_culc,\
+                sumtime_t[0]/num_culc, ave_TABLE_REQ[0], aveG, num_queryG[t]/num_culc, sumtime_t[1]/num_culc, ave_TABLE_REQ[1]))
+            print(strings[-1])
+
+            #t=29まで探索を終えたらグループを作成する
+            if t == 29:
+                #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
+                num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
+                frequent_canel = [row[0] for row in num_chanel_used_sorted]
+                Egroup, Gedge = make_group(V, E, F, frequent_canel, Member)
+                group_member = set(Nodes(Egroup))
+            
+            ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
+            F1 = {}
+            for k in E:
+                F1[k] = 1
+                F1[k[::-1]] = 1
+            for v in V:
+                check_RT(v, F1)
+        
+        #次の反復の準備としてVのアドレス以外の情報を削除する
+        for v in V:
+            v.Reset()
+        with open("jikken5.txt", "a", encoding="utf-8") as f:
+            f.write("\n".join(strings))
+            f.write("\n")
 
 def connect(V, E):
     q = queue.Queue()
@@ -1611,5 +1663,5 @@ if __name__ == "__main__":
     #    v.Mr = set()
     #plotLN(V, E)
     print("simulation start")
-    Simulation4B()
+    Simulation5()
     #plotLN(V, E)
