@@ -1104,6 +1104,46 @@ def make_group(V, E, F, frequent_canel, num_member):
     
     return Egroup, ebar
 
+def make_group2(V, E, F, frequent_canel, num_member):
+    #頻出チャネルの情報からユーザーグループを作成する。3人~10人くらい
+    #完全グラフではなく、線状にエッジを貼る
+
+    #まずfrequent_chanelから候補ユーザーを特定する。
+    #候補ノードはそのノードをビーコンとして選択しているノードの数rbでソートしておく
+    frequent_node = Nodes(frequent_canel)
+    ranked_node = []
+    while frequent_node:
+        u = frequent_node.pop()
+        index = 0
+        while index < len(ranked_node):
+            if len(u.rb) < len(ranked_node[index].rb):
+                break
+            index += 1
+        ranked_node.insert(index, u)
+
+    #ソートした候補の中で先頭num_mamber個までをグループのメンバーにする
+    Emember = ranked_node[0:num_member]
+    Egroup = []
+    u = Emember.pop()
+    while Emember:
+        v = Emember.pop()
+        Egroup.append((u, v))
+        u = v
+
+    ebar = set()
+    for e in Egroup:
+        if e not in E:
+            E.append(e)
+            ebar.add(e)
+            e[0].cap[e] = e[0].cap[e[::-1]] = \
+            e[1].cap[e] = e[1].cap[e[::-1]] = random.randint(MIN_CAP, MAX_CAP)
+            e[0].fee[e] = e[0].fee[e[::-1]] = \
+            e[1].fee[e] = e[1].fee[e[::-1]] = F[e] = F[e[::-1]] = random.randint(1, 10)
+            e[0].set_adj_edge(e)
+            e[1].set_adj_edge(e)
+    
+    return Egroup, ebar
+
 def NEIGHBOR_UPD(Vupd):
     while Vupd:
         v = list(Vupd)[0]
@@ -1534,7 +1574,7 @@ def Simulation5():
     T = 60
     num_sample = 10
     num_r = NUM_NODE//10
-    NUM_Member = [0,5,10,15,20,25,30,35,40]
+    NUM_Member = [25]
     #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
     ebar = {t: [] for t in range(T)}
     enew = {t: [] for t in range(T)}
@@ -1618,7 +1658,7 @@ def Simulation5():
                 #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
                 num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
                 frequent_canel = [row[0] for row in num_chanel_used_sorted]
-                Egroup, Gedge = make_group(V, E, F, frequent_canel, Member)
+                Egroup, Gedge = make_group2(V, E, F, frequent_canel, Member)
                 group_member = set(Nodes(Egroup))
             
             ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
@@ -1653,16 +1693,16 @@ def connect(V, E):
         print("LN is disconnected")
 
 if __name__ == "__main__":
-    print("make network", end="")
-    t1 = time.time()
+    #print("make network", end="")
+    #t1 = time.time()
     #V = [Node(n) for n in range(NUM_NODE)]
-    V, E, F = make_network()
-    t2 = time.time()
-    print(": {}[s]".format(t2-t1))
-    for v in V:
-        v.M = set()
-        v.Mr = set()
+    #V, E, F = make_network2(V)
+    #t2 = time.time()
+    #print(": {}[s]".format(t2-t1))
+    #for v in V:
+    #    v.M = set()
+    #    v.Mr = set()
     #plotLN(V, E)
     print("simulation start")
-    Simulation2(V, E, F)
+    Simulation5()
     #plotLN(V, E)
