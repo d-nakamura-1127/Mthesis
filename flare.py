@@ -530,7 +530,7 @@ def Candicate_rotes(s, r, k, f, Ntab):
             c.num_TABLE_REQ[0] += 1
             U.add(c)
     #発見した候補ルートを記録
-    s.candicate[r] = P
+    #s.candicate[r] = P
     return P, rr, len(U)
 
 def Candicate_rotes_G(s, r, k, f, Ntab, member):
@@ -618,7 +618,7 @@ def route_ranking(f, p):
             C += p[i].fee[e]
     return 1/C
         
-def make_network(V):
+def make_network():
     knb = 4
     V = [Node(n) for n in range(NUM_NODE)]
     #ネットワークが円環状になるようにエッジを貼る
@@ -1161,8 +1161,8 @@ def Simulation1(V, E, F):
     G = (V, E)
     accessible = {0:[0 for n in range(12)], 1:[0 for n in range(12)], 10:[0 for n in range(12)]}
     num_sample = 10
-    num_r = NUM_NODE//10
-    num_culc = num_sample * num_r
+    num_r = NUM_NODE
+    num_culc = 0
     Q = (0, 1, 10)
     s = random.sample(V, num_sample) #送信者のリスト
     r_samp = random.sample(V, num_r) #受信者のリスト
@@ -1183,14 +1183,15 @@ def Simulation1(V, E, F):
                         t1 = time.time()
                         P, rr, q = Candicate_rotes(s[j], r, 5, 10, tab)
                         t2 = time.time()
+                        num_culc += 1
                         avetime[tab] += t2 - t1
                         if len(P) != 0:
-                            Ddk, Pdk = Dijkstra(s[j], r, G, Fstar)
+                            #Ddk, Pdk = Dijkstra(s[j], r, G, Fstar)
                             #for pi in P:
                             #    pathplot(pi, rr[pi])
                             accessible[tab][i] += 1
                             maxp = max(rr, key=rr.get)
-                            length[tab][i].append(len(maxp) - len(Pdk))
+                            #length[tab][i].append(len(maxp) - len(Pdk))
         print("{} {} {} {}".format(i, avetime[0]/num_culc, avetime[1]/num_culc, avetime[10]/num_culc))
     te = time.time()
     print("Accessible")
@@ -1243,8 +1244,8 @@ def Simulation2(V, E, F):
     G = (V, E)
     accessible = {0:[0 for n in range(12)], 1:[0 for n in range(12)], 10:[0 for n in range(12)]}
     num_sample = 10
-    num_r = NUM_NODE//10
-    num_culc = num_sample * num_r
+    num_r = NUM_NODE//20
+    num_culc = num_sample * num_r 
     Q = (0, 1, 10)
     s = random.sample(V, num_sample)
     r_samp = random.sample(V, num_r)
@@ -1652,16 +1653,16 @@ def connect(V, E):
         print("LN is disconnected")
 
 if __name__ == "__main__":
-    #print("make network", end="")
-    #t1 = time.time()
+    print("make network", end="")
+    t1 = time.time()
     #V = [Node(n) for n in range(NUM_NODE)]
-    #V, E, F = make_network2(V)
-    #t2 = time.time()
-    #print(": {}[s]".format(t2-t1))
-    #for v in V:
-    #    v.M = set()
-    #    v.Mr = set()
+    V, E, F = make_network()
+    t2 = time.time()
+    print(": {}[s]".format(t2-t1))
+    for v in V:
+        v.M = set()
+        v.Mr = set()
     #plotLN(V, E)
     print("simulation start")
-    Simulation5()
+    Simulation2(V, E, F)
     #plotLN(V, E)

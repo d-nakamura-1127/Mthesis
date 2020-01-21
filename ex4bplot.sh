@@ -1,10 +1,12 @@
 #!/bin/sh
 
+n=5
 gnuplot -e "
-set ylabel 'accessible';
-plot 'plot.txt' using 1:2 with linespoint lc rgb 'red' title '|M|=5,not group', 'plot.txt' using 1:4 with linespoint lc rgb 'dark-red' title '|M|=5,group', 'plot.txt' using 1:6 with linespoint lc rgb 'red' title '|M|=10,not group', 'plot.txt' using 1:8 with linespoint lc rgb 'dark-red' title '|M|=10,group', 'plot.txt' using 1:10 with linespoint lc rgb 'red' title '|M|=15,not group', 'plot.txt' using 1:12 with linespoint lc rgb 'dark-red' title '|M|=15,group', 'plot.txt' using 1:14 with linespoint lc rgb 'red' title '|M|=20,not group', 'plot.txt' using 1:16 with linespoint lc rgb 'dark-red' title '|M|=20,group', 'plot.txt' using 1:18 with linespoint lc rgb 'red' title '|M|=25,not group', 'plot.txt' using 1:4 with linespoint lc rgb 'dark-red' title '|M|=5,group';
+set ylabel 'Num TABLE REQ';
+plot 'plot-ex4.txt' using 1:$n+4*0 with linespoint title '|M|=0', 'plot-ex4.txt' using 1:$n+4*1 with linespoint title '|M|=5', 'plot-ex4.txt' using 1:$n+4*2 with linespoint title '|M|=10', 'plot-ex4.txt' using 1:$n+4*3 with linespoint title '|M|=15', 'plot-ex4.txt' using 1:$n+4*4 with linespoint title '|M|=20', 'plot-ex4.txt' using 1:$n+4*5 with linespoint title '|M|=25', 'plot-ex4.txt' using 1:$n+4*6 with linespoint title '|M|=30', 'plot-ex4.txt' using 1:$n+4*7 with linespoint title '|M|=35', 'plot-ex4.txt' using 1:$n+4*8 with linespoint title '|M|=40', 'plot-ex4.txt' using 1:$n+4*9 with linespoint title '|M|=45', 'plot-ex4.txt' using 1:$n+4*10 with linespoint title '|M|=50';
 set xlabel 'Time';
-set xrange [0:60];
+set xrange [30:60];
+set key right bottom;
 set xlabel font 'Arial,20';
 set ylabel font 'Arial,20';
 set key font 'Arial,15';
