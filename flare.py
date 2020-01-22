@@ -530,7 +530,7 @@ def Candicate_rotes(s, r, k, f, Ntab):
             c.num_TABLE_REQ[0] += 1
             U.add(c)
     #発見した候補ルートを記録
-    #s.candicate[r] = P
+    s.candicate[r] = P
     return P, rr, len(U)
 
 def Candicate_rotes_G(s, r, k, f, Ntab, member):
@@ -1574,7 +1574,7 @@ def Simulation5():
     T = 60
     num_sample = 10
     num_r = NUM_NODE//10
-    NUM_Member = [25]
+    NUM_Member = [15,20,25,30]
     #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
     ebar = {t: [] for t in range(T)}
     enew = {t: [] for t in range(T)}
@@ -1672,7 +1672,7 @@ def Simulation5():
         #次の反復の準備としてVのアドレス以外の情報を削除する
         for v in V:
             v.Reset()
-        with open("jikken5.txt", "a", encoding="utf-8") as f:
+        with open("jikken5B.txt", "a", encoding="utf-8") as f:
             f.write("\n".join(strings))
             f.write("\n")
 
