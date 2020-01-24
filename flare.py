@@ -603,7 +603,7 @@ def Candicate_rotes_G(s, r, k, f, Ntab, member):
             c.num_TABLE_REQ[1] += 1
             U.add(c)
     #発見した候補ルートを記録
-    #s.candicate[r] = P
+    s.candicate[r] = P
     return P, rr, len(U)
 
 def route_ranking(f, p):
@@ -1070,13 +1070,27 @@ def Remake_for_logs(V, E, F, Egroup, ebar, enew):
 
     return ebar, enew
 
-def make_group(V, E, F, frequent_canel, num_member):
+def make_group(V, E, F, num_chanel_used_sorted, num_member):
     #頻出チャネルの情報からユーザーグループを作成する。3人~10人くらい
 
     #まずfrequent_chanelから候補ユーザーを特定する。
     #候補ノードはそのノードをビーコンとして選択しているノードの数rbでソートしておく
-    frequent_node = Nodes(frequent_canel)
+    num_used = [row[1] for row in num_chanel_used_sorted]
+    frequent_node = set()
+    ave_used = sum(num_used)/len(num_used)
+    while num_chanel_used_sorted[-1][1] > ave_used:
+        chanel = num_chanel_used_sorted.pop(-1)
+        e = chanel[0]
+        frequent_node.add(e[0])
+        frequent_node.add(e[1])
     ranked_node = []
+
+    Emember = list()
+    if len(frequent_node) < num_member:
+        Emember = list(frequent_node)
+        frequent_chanel = [row[0] for row in num_chanel_used_sorted]
+        frequent_node = Nodes(frequent_chanel)
+
     while frequent_node:
         u = frequent_node.pop()
         index = 0
@@ -1104,26 +1118,34 @@ def make_group(V, E, F, frequent_canel, num_member):
     
     return Egroup, ebar
 
-def make_group2(V, E, F, num_chanel_used_sorted, num_member):
+def make_group2(V, E, F, num_node_used_sorted, num_member):
     #頻出チャネルの情報からユーザーグループを作成する。3人~10人くらい
     #完全グラフではなく、線状にエッジを貼る
-
-    #まずfrequent_chanelから候補ユーザーを特定する。
+    store = 100
+    #ノード単位で使用回数をカウントし、平均より多く使っていれば使用回数の多い順にメンバーに
+    #それでも足りなければrbの多い順にメンバーに
     #候補ノードはそのノードをビーコンとして選択しているノードの数rbでソートしておく
-    num_used = [row[1] for row in num_chanel_used_sorted]
+    num_used = [row[1] for row in num_node_used_sorted]
     frequent_node = set()
     ave_used = sum(num_used)/len(num_used)
-    while num_chanel_used_sorted[-1][1] > ave_used:
-        chanel = num_chanel_used_sorted.pop(-1)
-        e = chanel[0]
-        frequent_node.add(e[0])
-        frequent_node.add(e[1])
+    ns = 0
+    nc = 0
+    while num_node_used_sorted[-1][1] > ave_used:
+        n1 = num_node_used_sorted.pop(-1)
+        node = n1[0]
+        frequent_node.add(node)
+        if node.name < store:
+            ns += 1
+        else:
+            nc += 1
+    print("frequent node for |V| = {}: s={} c={}".format(num_member, ns, nc))
     ranked_node = []
 
-    if frequent_node < num_member:
+    Emember = list()
+    if len(frequent_node) < num_member:
         Emember = list(frequent_node)
-        frequent_chanel = [row[0] for row in num_chanel_used_sorted]
-        frequent_node = Nodes(frequent_chanel)
+        fnode = [row[0] for row in num_node_used_sorted]
+        frequent_node = set(fnode)
 
     while frequent_node:
         u = frequent_node.pop()
@@ -1200,6 +1222,14 @@ def count_chanel_used(p, num_canel_used):
         else:
             num_canel_used[e] = 1
         i += 1            
+
+def count_node_used(P, num_node_used):
+    #パスpの中で使用しているノードを確認し、その使用数をカウントする
+    for p in P:
+        if p in num_node_used.keys():
+            num_node_used[p] += 1
+        else:
+            num_node_used[p] = 1
 
 def num_TABLE_REQ_reset(V):
     i = 0
@@ -1699,138 +1729,151 @@ def Simulation6():
     #クエリの回数が少ない=より早く見つかっている
     #ユーザグループの作り方を色々試す
     T = 60
-    store = 20
+    store = 100
     num_sample = 10
-    num_r = NUM_NODE//10
-    NUM_Member = [15,20,25,30]
+    num_r = NUM_NODE//20
     #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
     ebar = {t: [] for t in range(T)}
     enew = {t: [] for t in range(T)}
     V = [Node(n) for n in range(NUM_NODE)]
     #V[0:19]を店ノードとし、V[20:1999]を客ノードとする
     S = random.sample(V, num_sample)
-    #r_samp = random.sample(V, num_r)
-    r_samp = {s:[] for s in S}
+    r_samp = random.sample(V, num_r)
+    nstore = 0
+    ncons = 0 
+    print("recipients")
+    for r in r_samp:
+        if r.name < store:
+            nstore += 1
+        else:
+            ncons += 1
+    print("num_store={} num_consumer={}".format(nstore, ncons))
+    Rlist = [{s:r_samp for s in S}]
+    r_samp = {s:set() for s in S}
     #送金者はすでに決まっているので、受信者を決定する。
+    print("sender:store-store cnsumer-consumer store-consumer")
     for s in S:
+        #店同士:ss、客同士:cc、店と客の間:sc で取引してる回数を計測
+        nss = 0
+        ncc = 0
+        nsc = 0
         while len(r_samp[s]) < num_r:
             j = s.name
             if s.name < store:
                 if random.random() < 0.05:
+                    nss += 1
                     MIN = 0
                     MAX = store - 1
                 else:
+                    nsc += 1
                     MIN = store
                     MAX = NUM_NODE -1
             else:
                 if random.random() < 0.95:
+                    nsc += 1
                     MIN = 0
                     MAX = store - 1
                 else:
+                    ncc += 1
                     MIN = store
                     MAX = NUM_NODE - 1
-            while j == s.name:
+            while j == s.name or V[j] in r_samp[s]:
                 j = random.randint(MIN, MAX)
-            r_samp[s].append(V[j])
+            r_samp[s].add(V[j])
+        print( "{}: ss={} cc={} sc={}".format(s.name, nss, ncc, nsc))
+    Rlist.append(r_samp)
 
-
-    while NUM_Member:
-        strings = []
-        group_member = set()
-        #ここでグラフを作る。
-        #メンバーの人数が変わるたびにグラフを初期化し、変更履歴に基づき同じように更新することで同一のグラフで実験する
-        strings.append("|M| = {}".format(NUM_Member[0]))
-        print(strings[-1])
-        strings.append("make network |V|={} |E|={}".format(NUM_NODE, NUM_NODE*2))
-        print(strings[-1])
-        V, E, F = make_network2(V)
-        #plotLN(V, E)
-        for v in V:
-            v.M = set()
-            v.Mr = set()
-        num_culc = 0
-        #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
-        accessible = {t:{(v, u): 0 for v in S for u in r_samp if v != u} for t in range(T)}
-        num_query = {t: 0 for t in range(T)} #時刻tでの探索においてクエリを送信した回数の合計
-        accessibleG = {t:{(v, u): 0 for v in S for u in r_samp if v != u} for t in range(T)}
-        num_queryG = {t: 0 for t in range(T)}
-        num_chanel_used = {}
-        strings.append("                flare                          flare.re  ")
-        print(strings[-1])
-        strings.append("t, Accessible, ave_query, ave_time, TABLE_REQ")
-        print(strings[-1])
-        #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
-        Egroup = list()
-        Member = NUM_Member.pop(0)
-        for t in range(T):
-            num_culc = 0
-            sumtime_t = [0, 0]
-            sum_TABEL_REQ = [0, 0]
-            ave_TABLE_REQ = [0, 0]
-            for s in S: #送金を行うノード候補のリストsのインデックス
-                Beacon_Discovery(s, 6, F)
-                for r in r_samp[s]:
-                    if s != r:
-                        ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
-                        t1 = time.time()
-                        P, rr, q = Candicate_rotes_G(s, r, 5, 10, 10, group_member)
-                        t2 = time.time()
-                        sumtime_t[1] += t2-t1
-                        num_queryG[t] += q
-                        if len(P) != 0:
-                            accessibleG[t][(s, r)] = 1
-
-                        t1 = time.time()
-                        P, rr, q = Candicate_rotes(s, r, 5, 10, 10)
-                        t2 = time.time()
-                        sumtime_t[0] += t2-t1
-                        num_query[t] += q
-                        num_culc += 1
-                        if len(P) != 0:
-                            for pi in P:
-                                count_chanel_used(pi, num_chanel_used)
-                            maxp = max(rr, key=rr.get)
-                            s.path[r] = maxp
-                            accessible[t][(s, r)] = 1
-            for v in group_member:
-                sum_TABEL_REQ[0] += v.num_TABLE_REQ[0]
-                sum_TABEL_REQ[1] += v.num_TABLE_REQ[1]
-            num_TABLE_REQ_reset(V)
-            if Member != 0:
-                ave_TABLE_REQ[0] = sum_TABEL_REQ[0]/Member
-                ave_TABLE_REQ[1] = sum_TABEL_REQ[1]/Member
-            ave = sum(accessible[t].values()) / len(accessible[t])
-            aveG = sum(accessibleG[t].values()) / len(accessibleG[t])
-            strings.append('{:0=2} {:.10f} {:.10f} {:.10f} {:.8f}'.format(t, aveG, num_queryG[t]/num_culc, sumtime_t[1]/num_culc, ave_TABLE_REQ[1]))
+    while Rlist:
+        NUM_Member = [15, 20, 25, 30]
+        r_samp = Rlist.pop(0)
+        if len(Rlist) == 0:
+            with open("jikken6.txt", "a", encoding="utf-8") as f:
+                f.write("\n後半開始（偏りあり）\n")
+        while NUM_Member:
+            strings = []
+            group_member = set()
+            #ここでグラフを作る。
+            #メンバーの人数が変わるたびにグラフを初期化し、変更履歴に基づき同じように更新することで同一のグラフで実験する
+            strings.append("|M| = {}".format(NUM_Member[0]))
             print(strings[-1])
-
-            #t=29まで探索を終えたらグループを作成する
-            if t == 29:
-                #チャネルの使用回数でnum_chanel_usedをソートし、その先頭10個くらいをfrequent_chanelにする
-                num_chanel_used_sorted = sorted(num_chanel_used.items(), key=lambda x: x[1])
-                Egroup, Gedge = make_group2(V, E, F, num_chanel_used_sorted, Member)
-                group_member = set(Nodes(Egroup))
-                string = ""
-                for m in group_member:
-                    string = string + str(m.name) + " "
-            
-            ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
-            F1 = {}
-            for k in E:
-                F1[k] = 1
-                F1[k[::-1]] = 1
+            strings.append("make network |V|={} |E|={}".format(NUM_NODE, NUM_NODE*2))
+            print(strings[-1])
+            V, E, F = make_network2(V)
+            #plotLN(V, E)
             for v in V:
-                check_RT(v, F1)
-        
-        #次の反復の準備としてVのアドレス以外の情報を削除する
-        for v in V:
-            v.Reset()
-        with open("jikken6.txt", "a", encoding="utf-8") as f:
-            f.write("\n".join(strings))
-            f.write("\n")
-    with open("jikken6.txt", "a", encoding="utf-8") as f:
-        f.write("group member\n")
-        f.write("\n".join(string))
+                v.M = set()
+                v.Mr = set()
+            num_culc = 0
+            #accessible[(t, v, u)]:時刻tでノードuからvへの送金ができたかを記録する
+            accessibleG = {t:{(v, u): 0 for v in S for u in r_samp[v] if v != u} for t in range(T)}
+            num_queryG = {t: 0 for t in range(T)}
+            num_node_used = {}
+            strings.append("                flare                          flare.re  ")
+            #print(strings[-1])
+            strings.append("t, Accessible, ave_query, ave_time, TABLE_REQ")
+            #print(strings[-1])
+            #少数ユーザーのグループを繋ぐ辺の集合。これは消してはいけない
+            Egroup = list()
+            Member = NUM_Member.pop(0)
+            for t in range(T):
+                num_culc = 0
+                sumtime_t = [0, 0]
+                sum_TABEL_REQ = [0, 0]
+                ave_TABLE_REQ = [0, 0]
+                for s in S: #送金を行うノード候補のリストsのインデックス
+                    Beacon_Discovery(s, 6, F)
+                    for r in r_samp[s]:
+                        if s != r:
+                            ###Candicate_routes(s, r, k, f, Ntab)において、Ntab<NUM_NODEにしないといけない
+                            t1 = time.time()
+                            P, rr, q = Candicate_rotes_G(s, r, 5, 10, 10, group_member)
+                            t2 = time.time()
+                            sumtime_t[1] += t2-t1
+                            num_queryG[t] += q
+                            num_culc += 1
+                            if len(P) != 0:
+                                for pi in P:
+                                    count_node_used(pi, num_node_used)
+                                maxp = max(rr, key=rr.get)
+                                s.path[r] = maxp
+                                accessibleG[t][(s, r)] = 1
+                for v in group_member:
+                    sum_TABEL_REQ[1] += v.num_TABLE_REQ[1]
+                num_TABLE_REQ_reset(V)
+                if Member != 0:
+                    ave_TABLE_REQ[1] = sum_TABEL_REQ[1]/Member
+                aveG = sum(accessibleG[t].values()) / len(accessibleG[t])
+                strings.append('{:0=2} {:.10f} {:.10f} {:.10f} {:.8f}'.format(t, aveG, num_queryG[t]/num_culc, sumtime_t[1]/num_culc,   ave_TABLE_REQ[1]))
+                #print(strings[-1])
+
+                #t=29まで探索を終えたらグループを作成する
+                if t == 29:
+                    #ノードの使用回数でnum_node_usedをソートする
+                    num_node_used_sorted = sorted(num_node_used.items(), key=lambda x: x[1])
+                    Egroup, Gedge = make_group2(V, E, F, num_node_used_sorted, Member)
+                    group_member = set(Nodes(Egroup))
+                    string = ""
+                    for m in group_member:
+                        string = string + str(m.name) + " "
+
+                ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
+                F1 = {}
+                for k in E:
+                    F1[k] = 1
+                    F1[k[::-1]] = 1
+                for v in V:
+                    check_RT(v, F1)
+
+            #次の反復の準備としてVのアドレス以外の情報を削除する
+            for v in V:
+                v.Reset()
+            strings.append("group member")
+            strings.append(string)
+            #print(string)
+            with open("jikken6-3.txt", "a", encoding="utf-8") as f:
+                f.write("\n".join(strings))
+                f.write("\n")
+            
 
 def connect(V, E):
     q = queue.Queue()
