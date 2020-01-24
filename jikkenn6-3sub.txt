@@ -1,0 +1,17 @@
+recipients
+num_store=6 num_consumer=94
+sender:store-store cnsumer-consumer store-consumer
+1195: ss=0 cc=7 sc=93
+1075: ss=0 cc=2 sc=98
+18: ss=5 cc=0 sc=95
+788: ss=0 cc=6 sc=94
+417: ss=0 cc=8 sc=92
+292: ss=0 cc=3 sc=97
+1497: ss=0 cc=4 sc=96
+526: ss=0 cc=2 sc=98
+1825: ss=0 cc=5 sc=95
+1520: ss=0 cc=6 sc=94
+
+frequent node for |V| = 15: s=23 c=503
+
+frequent node for |V| = 15: s=99 c=392
