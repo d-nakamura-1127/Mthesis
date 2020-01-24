@@ -1,3 +1,4 @@
+#偏りを持たせる＋送受信ペアに関する情報追加
 |M| = 15
 make network |V|=2000 |E|=4000
                 flare                          flare.re  
