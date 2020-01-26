@@ -80,7 +80,7 @@ class Node:
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
         self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
         self.num_TABLE_REQ = [0, 0] #selfがRTを要求された回数。[0]:従来のflareでの回数 [1]:拡張後の回数
-        self.num_use_node = [0, 0]
+        self.num_used = 0
 
     def print_node(self):
         print("name {}, adj {}, RT {}".format(self.name, self.adj, self.RT))
@@ -182,7 +182,7 @@ class Node:
         self.active = 1 #ノードがアクティブになっているかを記録する。1ならアクティブ、0ならノンアクティブ
         self.candicate = dict() #self.candicate[r]:ノードrへの候補ルートのリスト。dict(list())
         self.num_TABLE_REQ = [0, 0] #selfがRTを要求された回数。0:グループあり 1:グループなし
-        self.num_use_node = [0, 0]
+        self.num_used = 0
 
 def plotLN(V, E):
     #作成したネットワークをプロットして確認する用
@@ -1164,8 +1164,9 @@ def make_group2(V, E, F, num_node_used_sorted, num_member):
         Emember = Emember[0:num_member]
 
     Egroup = []
-    u = Emember.pop()
     while Emember:
+        if len(Emember) == num_member:
+            u = Emember.pop()
         v = Emember.pop()
         Egroup.append((u, v))
         u = v
@@ -1228,6 +1229,7 @@ def count_chanel_used(p, num_canel_used):
 def count_node_used(P, num_node_used):
     #パスpの中で使用しているノードを確認し、その使用数をカウントする
     for p in P:
+        p.num_used += 1
         if p in num_node_used.keys():
             num_node_used[p] += 1
         else:
@@ -1237,7 +1239,16 @@ def num_TABLE_REQ_reset(V):
     i = 0
     while i < NUM_NODE:
         V[i].num_TABLE_REQ = [0, 0]
+        V[i].num_used = 0
         i += 1 
+
+def candicate_reset(V):
+    #LNの1回あたりに更新する辺の数次第では、それまでの探索で見つかったパスがほぼそのまま使えてグループ作っても変わらない可能性がある
+    #そこで一度それまでの探索結果を全て破棄する。これで変わったらグループの作成によってより良いパスが見つかるようになったということ
+    i = 0
+    while i < NUM_NODE:
+        V[i].candicate = {}
+        i += 1
 
 def pathplot(path, rr):
     print("(", end="")
@@ -1509,6 +1520,7 @@ def Simulation4B():
     #LNの更新履歴を保存する変数。ebar[t]:時刻tで消える辺 enew[t]:時刻tで増える辺
     ebar = {t: [] for t in range(T)}
     enew = {t: [] for t in range(T)}
+    num_used0 = {t: {} for t in range(T)}
     V = [Node(n) for n in range(NUM_NODE)]
     while NUM_Member:
         strings = []
@@ -1534,7 +1546,7 @@ def Simulation4B():
         num_node_used = {}
         strings.append("                not_group                          group  ")
         print(strings[-1])
-        strings.append("t, Accessible, ave_query, ave_time, TABLE_REQ")
+        strings.append("t, Accessible, ave_query, ave_time, TABLE_REQ, ave_member_used ave_member_used_M=0")
         print(strings[-1])
         find = 0
         disfind = 0
@@ -1548,6 +1560,7 @@ def Simulation4B():
             sumtime_t = 0
             sum_TABEL_REQ = 0
             sum_USED = 0
+            sum_used0 = 0
             for j in range(num_sample): #送金を行うノード候補のリストsのインデックス
                 Beacon_Discovery(s[j], 6, F)
                 for r in r_samp:
@@ -1567,14 +1580,25 @@ def Simulation4B():
                             accessible[t][(s[j], r)] = 1
             for v in group_member:
                 sum_TABEL_REQ += v.num_TABLE_REQ[0]
-                sum_USED += num_node_used[v]
+                sum_USED += v.num_used
+                sum_used0 += num_used0[t][v]
+
+            #Member=0の時はどのノードがメンバーになるかわからない
+            #よってMember=0の時の各時刻における各ノードの使用数を全て記録しておき、グループが決まったら比較する
+            if Member == 0:
+                for v in V:
+                    num_used0[t][v] = v.num_used
+            
             num_TABLE_REQ_reset(V)
             if Member == 0:
                 ave_TABLE_REQ = 0
                 ave_used = 0
+                ave_used0 = 0
             else:
                 ave_TABLE_REQ = sum_TABEL_REQ/Member
                 ave_used = sum_USED/Member
+                ave_used0 = sum_used0/Member
+
             ave = sum(accessible[t].values()) / len(accessible[t])
             c = collections.Counter(accessible[t].values())
             access += c[1]
@@ -1585,8 +1609,8 @@ def Simulation4B():
                         find += 1
                     elif accessible[t][sr] == 0 and accessible[t-1][sr] == 1:
                         disfind += 1
-            strings.append('{:0=2} {:.10f} {:.10f} {:.10f} {:.8f} {.8f}'.format(t, ave, num_query[t]/num_culc,\
-                sumtime_t/num_culc, ave_TABLE_REQ, ave_used))
+            strings.append('{:0=2} {:.10f} {:.10f} {:.10f} {:.8f} {:.8f} {:.8f}'.format(t, ave, num_query[t]/num_culc,\
+                sumtime_t/num_culc, ave_TABLE_REQ, ave_used, ave_used0))
             print(strings[-1])
 
             #t=29まで探索を終えたらグループを作成する
@@ -1595,6 +1619,7 @@ def Simulation4B():
                 num_node_used_sorted = sorted(num_node_used.items(), key=lambda x: x[1])
                 Egroup, Gedge = make_group2(V, E, F, num_node_used_sorted, Member)
                 group_member = set(Nodes(Egroup))
+                #candicate_reset(V)
             
             ebar[t], enew[t] = Remake_for_logs(V, E, F, Egroup, ebar[t], enew[t])
             F1 = {}
@@ -1613,7 +1638,7 @@ def Simulation4B():
         #次の反復の準備としてVのアドレス以外の情報を削除する
         for v in V:
             v.Reset()
-        with open("jikkenNumMem3.txt", "a", encoding="utf-8") as f:
+        with open("jikkenNumMem5.txt", "a", encoding="utf-8") as f:
             f.write("\n".join(strings))
             f.write("\n")
 
@@ -1925,5 +1950,5 @@ if __name__ == "__main__":
     #    v.Mr = set()
     #plotLN(V, E)
     print("simulation start")
-    Simulation6()
+    Simulation4B()
     #plotLN(V, E)
